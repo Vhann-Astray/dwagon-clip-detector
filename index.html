@@ -10,17 +10,17 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text);
          font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
-  header { padding:12px 18px; border-bottom:1px solid var(--line); background:var(--panel);
-           position:sticky; top:0; z-index:30; display:flex; gap:12px 16px;
-           align-items:center; flex-wrap:wrap; }
-  header h1 { font-size:17px; margin:0; font-weight:650; }
-  header .meta { color:var(--muted); font-size:12px; }
+  header { padding:10px 18px; border-bottom:1px solid var(--line); background:var(--panel);
+    position:sticky; top:0; z-index:30; display:flex; gap:10px 16px; align-items:center;
+    flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; font-weight:650; white-space:nowrap; }
+  header .meta { color:var(--muted); font-size:12px; white-space:nowrap; }
   .spacer { flex:1 1 20px; }
   .ctl { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .ctl label { font-size:13px; color:var(--muted); display:flex; gap:6px; align-items:center; }
   input[type=range] { accent-color:var(--accent); }
   input[type=search] { background:var(--panel2); border:1px solid var(--line);
-    color:var(--text); border-radius:8px; padding:6px 10px; min-width:160px; }
+    color:var(--text); border-radius:8px; padding:6px 10px; min-width:150px; }
   .dchip { cursor:pointer; border:1px solid var(--line); background:var(--panel2);
     color:var(--muted); border-radius:999px; padding:5px 11px; font-size:13px;
     display:flex; gap:6px; align-items:center; transition:.12s; }
@@ -34,53 +34,82 @@
   .sort button.active { background:var(--accent); color:#0b0d12; font-weight:700; }
   .filenote { background:#3a2a00; color:#ffd479; font-size:13px; padding:8px 18px;
     border-bottom:1px solid var(--line); }
-  .main { display:grid; grid-template-columns:minmax(340px,440px) 1fr; gap:16px;
-    max-width:1280px; margin:0 auto; padding:16px; align-items:start; }
-  @media (max-width:900px){ .main { grid-template-columns:1fr; } }
-  .player-col { position:sticky; top:62px; }
-  @media (max-width:900px){ .player-col { position:static; } }
+  .main { display:grid; grid-template-columns:minmax(360px,460px) 1fr; gap:18px;
+    max-width:1400px; margin:0 auto; padding:16px; align-items:start; }
+  @media (max-width:860px){ .main { grid-template-columns:1fr; } }
+
+  /* ---- Player column ---- */
+  .player-col { position:sticky; top:60px; display:flex; flex-direction:column; gap:10px; }
+  @media (max-width:860px){ .player-col { position:static; } }
   .player-box { position:relative; width:100%; aspect-ratio:16/9; background:#000;
     border-radius:12px; overflow:hidden; border:1px solid var(--line); }
-  .player-box iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .player-box #player, .player-box iframe { position:absolute; inset:0;
+    width:100%; height:100%; border:0; }
   .player-ph { position:absolute; inset:0; display:flex; align-items:center;
     justify-content:center; color:var(--muted); font-size:14px; text-align:center; padding:20px; }
-  .now { margin-top:10px; font-size:13px; color:var(--muted); min-height:18px; }
-  .now b { color:var(--text); }
+  .nowcard { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:12px 14px; }
+  .nowcard .t1 { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .nowcard .t2 { color:var(--muted); font-size:13px; margin-top:2px; display:flex;
+    gap:8px; align-items:center; flex-wrap:wrap; }
+  .pill { font-size:11px; font-weight:700; color:#0b0d12; border-radius:6px; padding:1px 7px; }
+  .navrow { display:flex; align-items:center; gap:8px; margin-top:10px; }
+  .navrow button { flex:1; background:var(--panel2); border:1px solid var(--line);
+    color:var(--text); border-radius:8px; padding:8px 10px; cursor:pointer; font:inherit;
+    font-size:13px; }
+  .navrow button:hover:not(:disabled) { border-color:var(--accent); }
+  .navrow button:disabled { opacity:.4; cursor:default; }
+  .navrow .counter { color:var(--muted); font-size:12px; min-width:66px; text-align:center;
+    font-variant-numeric:tabular-nums; }
+  .nowacts { display:flex; gap:8px; margin-top:8px; }
+  .nowacts a, .nowacts button { flex:1; text-align:center; text-decoration:none;
+    background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    border-radius:8px; padding:7px; font:inherit; font-size:13px; cursor:pointer; }
+  .nowacts .ok { color:#7CFC98; border-color:#7CFC98; }
+
+  /* ---- List column ---- */
   .list-col { min-width:0; }
   .group { margin-bottom:14px; border:1px solid var(--line); border-radius:12px;
-           overflow:hidden; background:var(--panel); }
-  .group > summary { cursor:pointer; list-style:none; padding:12px 14px; display:flex;
-     gap:12px; align-items:center; background:var(--panel2); }
-  .group > summary::-webkit-details-marker { display:none; }
-  .caret { color:var(--muted); transition:transform .15s; }
-  .group[open] .caret { transform:rotate(90deg); }
+    overflow:hidden; background:var(--panel); }
+  .ghead { padding:11px 14px; display:flex; gap:12px; align-items:center; background:var(--panel2); }
   .thumb { width:72px; height:40px; object-fit:cover; border-radius:6px; flex:none;
-     background:#000; border:1px solid var(--line); }
-  .ginfo { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+    background:#000; border:1px solid var(--line); }
+  .ginfo { flex:1; min-width:0; }
   .gtitle { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .gmeta { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis;
-     white-space:nowrap; }
-  .chips { display:flex; flex-wrap:wrap; gap:8px; padding:12px 14px; }
+    white-space:nowrap; }
+  /* timeline */
+  .timeline { position:relative; height:30px; margin:0 14px; border-radius:6px;
+    background:linear-gradient(var(--panel2),var(--panel2)); border:1px solid var(--line);
+    margin-top:10px; cursor:crosshair; }
+  .tick { position:absolute; bottom:0; width:3px; margin-left:-1px; border-radius:2px;
+    background:var(--c); opacity:.85; cursor:pointer; transition:transform .1s; }
+  .tick:hover { transform:scaleX(2.4); opacity:1; }
+  .chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:7px; padding:12px 14px; }
   .chip { display:flex; align-items:stretch; background:var(--panel2);
     border:1px solid var(--line); border-left:3px solid var(--c); border-radius:8px;
-    overflow:hidden; transition:.12s; }
-  .chip:hover { border-color:var(--c); transform:translateY(-1px); }
-  .chip.active { background:#2a1b22; border-color:var(--c); }
-  .chip .play { display:flex; gap:7px; align-items:center; cursor:pointer;
-    background:none; border:0; color:var(--text); font:inherit; padding:6px 9px 6px 11px; }
+    overflow:hidden; transition:.1s; scroll-margin:70px; }
+  .chip:hover { border-color:var(--c); }
+  .chip.active { background:#2a1b22; outline:2px solid var(--c); outline-offset:-1px; }
+  .chip .play { flex:1; display:flex; gap:7px; align-items:center; cursor:pointer;
+    background:none; border:0; color:var(--text); font:inherit; padding:6px 6px 6px 10px;
+    min-width:0; }
   .chip .play:hover .t { color:var(--c); }
   .chip .em { font-size:13px; }
   .chip .t { font-variant-numeric:tabular-nums; font-weight:600; }
   .chip .sc { font-size:11px; color:#0b0d12; background:var(--c); border-radius:6px;
-     padding:1px 6px; font-weight:700; }
+    padding:1px 6px; font-weight:700; margin-left:auto; }
   .chip .act { cursor:pointer; background:none; border:0; border-left:1px solid var(--line);
-    color:var(--muted); padding:0 9px; font-size:13px; text-decoration:none; display:flex;
+    color:var(--muted); padding:0 8px; font-size:13px; text-decoration:none; display:flex;
     align-items:center; }
   .chip .act:hover { color:var(--c); background:#ffffff0d; }
   .chip .act.ok { color:#7CFC98; }
   .empty { color:var(--muted); padding:48px; text-align:center; }
   footer { color:var(--muted); font-size:12px; padding:16px 18px; border-top:1px solid var(--line);
-     max-width:1280px; margin:0 auto; }
+    max-width:1400px; margin:0 auto; }
+  kbd { background:var(--panel2); border:1px solid var(--line); border-radius:4px;
+    padding:0 5px; font-size:11px; }
 </style>
 </head>
 <body>
@@ -92,156 +121,202 @@
   <span class="ctl">
     <div class="sort" id="sortCtl">
       <button data-sort="chrono" class="active">Chronological</button>
-      <button data-sort="score_desc">Score ↓</button>
-      <button data-sort="score_asc">Score ↑</button>
+      <button data-sort="score_desc">Best first</button>
+      <button data-sort="score_asc">Lowest</button>
     </div>
     <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
     <input type="search" id="filter" placeholder="Filter VOD title…">
   </span>
 </header>
 <div class="filenote" id="fileNote" style="display:none">
-  ⚠️ Opened as a local file — the embedded player and data loading need http.
-  Use the GitHub Pages URL, or run <code>python -m http.server</code> in this folder.
+  ⚠️ Opened as a local file — the player and data loading need http. Use the GitHub Pages URL
+  or run <code>python -m http.server</code> in this folder.
 </div>
 
 <div class="main">
   <div class="player-col">
     <div class="player-box">
       <div class="player-ph" id="ph">Click a moment to play it here.</div>
-      <iframe id="player" src="" title="YouTube player" style="display:none"
-        allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+      <div id="player"></div>
     </div>
-    <div class="now" id="now"></div>
+    <div class="nowcard">
+      <div class="t1" id="nowTitle">No moment selected</div>
+      <div class="t2" id="nowSub"><span>Pick a timestamp or a timeline tick →</span></div>
+      <div class="navrow">
+        <button id="prevBtn" disabled>◀ Prev</button>
+        <span class="counter" id="counter">— / —</span>
+        <button id="nextBtn" disabled>Next ▶</button>
+      </div>
+      <div class="nowacts">
+        <a id="nowOpen" href="#" target="_blank" rel="noopener">↗ YouTube</a>
+        <button id="nowCopy">⧉ Copy link</button>
+      </div>
+      <div class="t2" style="margin-top:8px"><span>Keys: <kbd>←</kbd> <kbd>→</kbd> navigate</span></div>
+    </div>
   </div>
   <div class="list-col"><div id="list"><div class="empty">Loading data…</div></div></div>
 </div>
 <footer id="foot"></footer>
 
 <script>
-let DATA = null, DET = {}, active = new Set(), sortMode = "chrono", activeChip = null;
+let DATA=null, DET={}, active=new Set(), sortMode="chrono";
+let flat=[], cur=-1;   // flat = moments visibles dans l'ordre d'affichage
+let player=null, playerReady=false, curVid=null, pending=null;
 
-function fmtDur(sec){ sec=Math.round(sec||0); if(!sec) return "";
-  const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
-  return (h?h+"h":"")+String(m).padStart(h?2:1,"0")+"m"+String(s).padStart(2,"0"); }
+// API YouTube IFrame : seekTo si même vidéo (pas de rechargement), loadVideoById sinon.
+function onYouTubeIframeAPIReady(){
+  player=new YT.Player("player",{ width:"100%", height:"100%",
+    playerVars:{ playsinline:1, rel:0 },
+    events:{ onReady:()=>{ playerReady=true;
+      if(pending){ const p=pending; pending=null; playAt(p[0],p[1]); } } } });
+}
+function playAt(vid, sec){
+  document.getElementById("ph").style.display="none";
+  if(!playerReady){ pending=[vid,sec]; return; }
+  if(vid===curVid){ player.seekTo(sec, true); player.playVideo(); }   // même VOD → saut
+  else { player.loadVideoById({videoId:vid, startSeconds:sec}); curVid=vid; }
+}
+
+function fmtDur(s){ s=Math.round(s||0); if(!s) return "";
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;
+  return (h?h+"h":"")+String(m).padStart(h?2:1,"0")+"m"+String(x).padStart(2,"0"); }
 function esc(s){ return (s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-
-function sortItems(items){ const a=items.slice();
+function sortItems(a){ a=a.slice();
   if(sortMode==="score_desc") a.sort((x,y)=>y.score-x.score);
   else if(sortMode==="score_asc") a.sort((x,y)=>x.score-y.score);
   else a.sort((x,y)=>x.t-y.t); return a; }
 
-function playHere(videoId, seconds, chipEl, label){
-  const card = chipEl.closest(".chip");
-  if(activeChip) activeChip.classList.remove("active");
-  activeChip = card; if(card) card.classList.add("active");
-  document.getElementById("ph").style.display = "none";
-  const f = document.getElementById("player");
-  f.style.display = "block";
-  f.src = "https://www.youtube.com/embed/" + videoId + "?start=" + seconds + "&autoplay=1&rel=0";
-  document.getElementById("now").innerHTML =
-    "▶ <b>" + esc(label) + "</b> @ " + card.querySelector(".t").textContent;
-  if(window.innerWidth <= 900) window.scrollTo({top:0, behavior:"smooth"});
+function copyText(text, btn){ const lab=btn.textContent;
+  const ok=()=>{ btn.textContent="✓ copied"; btn.classList.add("ok");
+    setTimeout(()=>{ btn.textContent=lab; btn.classList.remove("ok"); },1200); };
+  if(navigator.clipboard&&navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(ok).catch(()=>fb(text,ok)); else fb(text,ok); }
+function fb(text,ok){ const t=document.createElement("textarea"); t.value=text;
+  t.style.position="fixed"; t.style.opacity="0"; document.body.appendChild(t); t.select();
+  try{ document.execCommand("copy"); ok(); }catch(e){} document.body.removeChild(t); }
+
+function select(i){
+  if(i<0||i>=flat.length) return;
+  if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
+  cur=i; const m=flat[cur]; m.el.classList.add("active");
+  playAt(m.vod, m.t);
+  const d=DET[m.type]||{color:"#888",emoji:"",label:m.type};
+  document.getElementById("nowTitle").textContent=m.title;
+  document.getElementById("nowSub").innerHTML=
+    `<span class="pill" style="background:${d.color}">${d.emoji||""} ${esc(d.label)}</span>`+
+    `<span>@ ${m.hms}</span><span>score ${m.score.toFixed(2)}</span>`;
+  document.getElementById("nowOpen").href=m.url;
+  document.getElementById("counter").textContent=(cur+1)+" / "+flat.length;
+  document.getElementById("prevBtn").disabled=cur<=0;
+  document.getElementById("nextBtn").disabled=cur>=flat.length-1;
+  m.el.scrollIntoView({block:"nearest", behavior:"smooth"});
+  if(window.innerWidth<=860) window.scrollTo({top:0, behavior:"smooth"});
 }
-function copyText(text, btn){
-  const label = btn.textContent;
-  const done = ()=>{ btn.textContent="✓"; btn.classList.add("ok");
-    setTimeout(()=>{ btn.textContent=label; btn.classList.remove("ok"); },1200); };
-  if(navigator.clipboard && navigator.clipboard.writeText)
-    navigator.clipboard.writeText(text).then(done).catch(()=>fb(text,done));
-  else fb(text,done);
-}
-function fb(text, done){ const ta=document.createElement("textarea"); ta.value=text;
-  ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta);
-  ta.select(); try{ document.execCommand("copy"); done(); }catch(e){} document.body.removeChild(ta); }
 
 function renderFilters(){
-  const box = document.getElementById("detFilters"); box.innerHTML = "";
-  DATA.detectors.forEach(d => {
-    const b = document.createElement("button");
-    b.className = "dchip" + (active.has(d.id)?" on":"");
-    b.style.setProperty("--c", d.color);
-    b.innerHTML = `<span class="dot"></span>${d.emoji||""} ${esc(d.label)}`;
-    b.onclick = () => { active.has(d.id)?active.delete(d.id):active.add(d.id);
-      b.classList.toggle("on"); render(); };
-    box.appendChild(b);
-  });
-}
+  const box=document.getElementById("detFilters"); box.innerHTML="";
+  DATA.detectors.forEach(d=>{ const b=document.createElement("button");
+    b.className="dchip"+(active.has(d.id)?" on":""); b.style.setProperty("--c",d.color);
+    b.innerHTML=`<span class="dot"></span>${d.emoji||""} ${esc(d.label)}`;
+    b.onclick=()=>{ active.has(d.id)?active.delete(d.id):active.add(d.id);
+      b.classList.toggle("on"); render(); }; box.appendChild(b); }); }
 
 function render(){
-  const minScore = parseFloat(document.getElementById("minScore").value);
-  const q = document.getElementById("filter").value.trim().toLowerCase();
-  const list = document.getElementById("list"); list.innerHTML = "";
-  let nV=0, nE=0;
+  const minScore=parseFloat(document.getElementById("minScore").value);
+  const q=document.getElementById("filter").value.trim().toLowerCase();
+  const list=document.getElementById("list"); list.innerHTML=""; flat=[]; cur=-1;
+  let nV=0,nE=0;
 
-  DATA.vods.forEach(v => {
+  DATA.vods.forEach(v=>{
     if(q && !(v.title||"").toLowerCase().includes(q)) return;
-    const items = v.items.filter(it => active.has(it.type) && it.score >= minScore);
+    const items=sortItems(v.items.filter(it=>active.has(it.type)&&it.score>=minScore));
     if(!items.length) return;
-    nV++; nE += items.length;
+    nV++; nE+=items.length;
 
-    const det = document.createElement("details");
-    det.className = "group"; det.open = true;
-    const byType = {}; items.forEach(it => byType[it.type]=(byType[it.type]||0)+1);
-    const counts = DATA.detectors.filter(d=>byType[d.id]).map(d=>`${d.emoji||""} ${byType[d.id]}`).join("  ");
-    const meta = [v.date, fmtDur(v.duration), counts].filter(Boolean).join("  ·  ");
-    const thumb = v.thumbnail ? `<img class="thumb" src="${v.thumbnail}" loading="lazy" alt="">` : "";
-    const sum = document.createElement("summary");
-    sum.innerHTML = `<span class="caret">▶</span>${thumb}
-      <span class="ginfo"><span class="gtitle">${esc(v.title)}</span>
-      <span class="gmeta">${esc(meta)}</span></span>`;
-    det.appendChild(sum);
+    const g=document.createElement("div"); g.className="group";
+    const byType={}; items.forEach(it=>byType[it.type]=(byType[it.type]||0)+1);
+    const counts=DATA.detectors.filter(d=>byType[d.id]).map(d=>`${d.emoji||""} ${byType[d.id]}`).join("  ");
+    const meta=[v.date,fmtDur(v.duration),counts].filter(Boolean).join("  ·  ");
+    const thumb=v.thumbnail?`<img class="thumb" src="${v.thumbnail}" loading="lazy" alt="">`:"";
+    const head=document.createElement("div"); head.className="ghead";
+    head.innerHTML=`${thumb}<div class="ginfo"><div class="gtitle">${esc(v.title)}</div>
+      <div class="gmeta">${esc(meta)}</div></div>`;
+    g.appendChild(head);
 
-    const chips = document.createElement("div"); chips.className = "chips";
-    sortItems(items).forEach(it => {
-      const d = DET[it.type] || {color:"#888",emoji:"",label:it.type};
-      const chip = document.createElement("div");
-      chip.className = "chip"; chip.style.setProperty("--c", d.color);
-      chip.title = `${d.label} · score ${it.score} · PANNs ${it.panns}`;
+    // timeline (ordre chronologique indépendamment du tri des pastilles)
+    const dur=v.duration||Math.max(...items.map(i=>i.t))||1;
+    const tl=document.createElement("div"); tl.className="timeline";
+    const chrono=items.slice().sort((a,b)=>a.t-b.t);
+    chrono.forEach(it=>{ const d=DET[it.type]||{color:"#888"};
+      const tk=document.createElement("div"); tk.className="tick";
+      tk.style.setProperty("--c",d.color);
+      tk.style.left=(100*it.t/dur)+"%";
+      tk.style.height=(30*(0.35+0.65*Math.min(it.score,1)))+"px";
+      tk.title=`${it.hms} · ${(DET[it.type]||{}).label||it.type} · ${it.score.toFixed(2)}`;
+      tk.dataset.key=v.vod_id+"@"+it.t+"@"+it.type;
+      tl.appendChild(tk); });
+    g.appendChild(tl);
 
-      const play = document.createElement("button");
-      play.className = "play";
-      play.innerHTML = `<span class="em">${d.emoji||""}</span><span class="t">${it.hms}</span>
+    const chips=document.createElement("div"); chips.className="chips";
+    items.forEach(it=>{
+      const d=DET[it.type]||{color:"#888",emoji:"",label:it.type};
+      const chip=document.createElement("div"); chip.className="chip";
+      chip.style.setProperty("--c",d.color);
+      chip.title=`${d.label} · score ${it.score} · PANNs ${it.panns}`;
+      const play=document.createElement("button"); play.className="play";
+      play.innerHTML=`<span class="em">${d.emoji||""}</span><span class="t">${it.hms}</span>
         <span class="sc">${it.score.toFixed(2)}</span>`;
-      play.onclick = () => playHere(v.vod_id, it.t, play, v.title);
-
-      const open = document.createElement("a");
-      open.className = "act"; open.href = it.url; open.target = "_blank"; open.rel = "noopener";
-      open.textContent = "↗"; open.title = "Open on YouTube (new tab)";
-
-      const copy = document.createElement("button");
-      copy.className = "act"; copy.textContent = "⧉"; copy.title = "Copy link: " + it.url;
-      copy.onclick = e => { e.preventDefault(); e.stopPropagation(); copyText(it.url, copy); };
-
+      const open=document.createElement("a"); open.className="act"; open.href=it.url;
+      open.target="_blank"; open.rel="noopener"; open.textContent="↗"; open.title="Open on YouTube";
+      const copy=document.createElement("button"); copy.className="act"; copy.textContent="⧉";
+      copy.title="Copy link"; copy.onclick=e=>{ e.preventDefault(); e.stopPropagation(); copyText(it.url,copy); };
       chip.appendChild(play); chip.appendChild(open); chip.appendChild(copy);
       chips.appendChild(chip);
+      const idx=flat.length;
+      flat.push({vod:v.vod_id,title:v.title,t:it.t,hms:it.hms,score:it.score,type:it.type,url:it.url,el:chip});
+      play.onclick=()=>select(idx);
     });
-    det.appendChild(chips); list.appendChild(det);
+    g.appendChild(chips); list.appendChild(g);
+
+    // relie chaque tick de timeline à l'index flat correspondant
+    const keyToIdx={}; flat.forEach((m,i)=>keyToIdx[m.vod+"@"+m.t+"@"+m.type]=i);
+    tl.querySelectorAll(".tick").forEach(tk=>{ const i=keyToIdx[tk.dataset.key];
+      if(i!=null) tk.onclick=()=>select(i); });
   });
 
-  if(!nV) list.innerHTML = '<div class="empty">No detections match the current filters.</div>';
-  document.getElementById("summary").textContent = `${nV} VOD${nV>1?"s":""} · ${nE} moments`;
+  if(!nV) list.innerHTML='<div class="empty">No detections match the current filters.</div>';
+  document.getElementById("summary").textContent=`${nV} VOD${nV>1?"s":""} · ${nE} moments`;
+  document.getElementById("counter").textContent="— / "+flat.length;
+  document.getElementById("prevBtn").disabled=true; document.getElementById("nextBtn").disabled=flat.length===0;
 }
 
-document.getElementById("minScore").addEventListener("input", e => {
-  document.getElementById("minScoreVal").textContent = parseFloat(e.target.value).toFixed(2); render(); });
-document.getElementById("filter").addEventListener("input", render);
-document.querySelectorAll("#sortCtl button").forEach(b => b.addEventListener("click", () => {
-  sortMode = b.dataset.sort;
+document.getElementById("prevBtn").onclick=()=>select(cur-1);
+document.getElementById("nextBtn").onclick=()=> select(cur<0?0:cur+1);
+document.getElementById("nowCopy").onclick=function(){ if(cur>=0) copyText(flat[cur].url,this); };
+document.getElementById("minScore").addEventListener("input",e=>{
+  document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2); render(); });
+document.getElementById("filter").addEventListener("input",render);
+document.querySelectorAll("#sortCtl button").forEach(b=>b.addEventListener("click",()=>{
+  sortMode=b.dataset.sort;
   document.querySelectorAll("#sortCtl button").forEach(x=>x.classList.remove("active"));
   b.classList.add("active"); render(); }));
+document.addEventListener("keydown",e=>{
+  if(/INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  if(e.key==="ArrowRight"){ e.preventDefault(); select(cur<0?0:cur+1); }
+  else if(e.key==="ArrowLeft"){ e.preventDefault(); select(cur-1); } });
 
-if(location.protocol === "file:") document.getElementById("fileNote").style.display = "block";
+if(location.protocol==="file:") document.getElementById("fileNote").style.display="block";
 
-fetch("data.json?v=" + Date.now()).then(r => r.json()).then(d => {
-  DATA = d; d.detectors.forEach(x => { DET[x.id] = x; active.add(x.id); });
-  document.getElementById("foot").textContent =
-    "Generated " + (d.generated_utc||"") + " UTC · click a moment to play it in the embedded player · ↗ opens YouTube · ⧉ copies the timestamped link.";
+fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
+  DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; active.add(x.id); });
+  document.getElementById("foot").textContent=
+    "Generated "+(d.generated_utc||"")+" UTC · click a moment (chip or timeline tick) to play it · ←/→ to step through · ↗ YouTube · ⧉ copy link.";
   renderFilters(); render();
-}).catch(err => {
-  document.getElementById("list").innerHTML =
+}).catch(err=>{
+  document.getElementById("list").innerHTML=
     '<div class="empty">Could not load <b>data.json</b>. Serve this folder over http (GitHub Pages or <code>python -m http.server</code>), not file://.</div>';
-  document.getElementById("summary").textContent = "";
-});
+  document.getElementById("summary").textContent=""; });
 </script>
+<script src="https://www.youtube.com/iframe_api"></script>
 </body>
 </html>
