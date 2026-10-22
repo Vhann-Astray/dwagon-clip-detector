@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CryDetector — Stream moments</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --text:#e7e9ee;
+    --muted:#9aa3b2; --accent:#ff5470; --line:#272c37; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:12px 18px; border-bottom:1px solid var(--line); background:var(--panel);
+           position:sticky; top:0; z-index:30; display:flex; gap:12px 16px;
+           align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; font-weight:650; }
+  header .meta { color:var(--muted); font-size:12px; }
+  .spacer { flex:1 1 20px; }
+  .ctl { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .ctl label { font-size:13px; color:var(--muted); display:flex; gap:6px; align-items:center; }
+  input[type=range] { accent-color:var(--accent); }
+  input[type=search] { background:var(--panel2); border:1px solid var(--line);
+    color:var(--text); border-radius:8px; padding:6px 10px; min-width:160px; }
+  .dchip { cursor:pointer; border:1px solid var(--line); background:var(--panel2);
+    color:var(--muted); border-radius:999px; padding:5px 11px; font-size:13px;
+    display:flex; gap:6px; align-items:center; transition:.12s; }
+  .dchip.on { color:#0b0d12; background:var(--c); border-color:var(--c); font-weight:650; }
+  .dchip .dot { width:9px; height:9px; border-radius:50%; background:var(--c); }
+  .dchip.on .dot { background:#0b0d12; }
+  .sort { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .sort button { background:var(--panel2); border:0; border-left:1px solid var(--line);
+    color:var(--muted); font:inherit; font-size:12px; padding:6px 10px; cursor:pointer; }
+  .sort button:first-child { border-left:0; }
+  .sort button.active { background:var(--accent); color:#0b0d12; font-weight:700; }
+  .filenote { background:#3a2a00; color:#ffd479; font-size:13px; padding:8px 18px;
+    border-bottom:1px solid var(--line); }
+  .main { display:grid; grid-template-columns:minmax(340px,440px) 1fr; gap:16px;
+    max-width:1280px; margin:0 auto; padding:16px; align-items:start; }
+  @media (max-width:900px){ .main { grid-template-columns:1fr; } }
+  .player-col { position:sticky; top:62px; }
+  @media (max-width:900px){ .player-col { position:static; } }
+  .player-box { position:relative; width:100%; aspect-ratio:16/9; background:#000;
+    border-radius:12px; overflow:hidden; border:1px solid var(--line); }
+  .player-box iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .player-ph { position:absolute; inset:0; display:flex; align-items:center;
+    justify-content:center; color:var(--muted); font-size:14px; text-align:center; padding:20px; }
+  .now { margin-top:10px; font-size:13px; color:var(--muted); min-height:18px; }
+  .now b { color:var(--text); }
+  .list-col { min-width:0; }
+  .group { margin-bottom:14px; border:1px solid var(--line); border-radius:12px;
+           overflow:hidden; background:var(--panel); }
+  .group > summary { cursor:pointer; list-style:none; padding:12px 14px; display:flex;
+     gap:12px; align-items:center; background:var(--panel2); }
+  .group > summary::-webkit-details-marker { display:none; }
+  .caret { color:var(--muted); transition:transform .15s; }
+  .group[open] .caret { transform:rotate(90deg); }
+  .thumb { width:72px; height:40px; object-fit:cover; border-radius:6px; flex:none;
+     background:#000; border:1px solid var(--line); }
+  .ginfo { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .gtitle { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gmeta { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis;
+     white-space:nowrap; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; padding:12px 14px; }
+  .chip { display:flex; align-items:stretch; background:var(--panel2);
+    border:1px solid var(--line); border-left:3px solid var(--c); border-radius:8px;
+    overflow:hidden; transition:.12s; }
+  .chip:hover { border-color:var(--c); transform:translateY(-1px); }
+  .chip.active { background:#2a1b22; border-color:var(--c); }
+  .chip .play { display:flex; gap:7px; align-items:center; cursor:pointer;
+    background:none; border:0; color:var(--text); font:inherit; padding:6px 9px 6px 11px; }
+  .chip .play:hover .t { color:var(--c); }
+  .chip .em { font-size:13px; }
+  .chip .t { font-variant-numeric:tabular-nums; font-weight:600; }
+  .chip .sc { font-size:11px; color:#0b0d12; background:var(--c); border-radius:6px;
+     padding:1px 6px; font-weight:700; }
+  .chip .act { cursor:pointer; background:none; border:0; border-left:1px solid var(--line);
+    color:var(--muted); padding:0 9px; font-size:13px; text-decoration:none; display:flex;
+    align-items:center; }
+  .chip .act:hover { color:var(--c); background:#ffffff0d; }
+  .chip .act.ok { color:#7CFC98; }
+  .empty { color:var(--muted); padding:48px; text-align:center; }
+  footer { color:var(--muted); font-size:12px; padding:16px 18px; border-top:1px solid var(--line);
+     max-width:1280px; margin:0 auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎧 CryDetector</h1>
+  <span class="meta" id="summary">Loading…</span>
+  <span class="ctl" id="detFilters"></span>
+  <span class="spacer"></span>
+  <span class="ctl">
+    <div class="sort" id="sortCtl">
+      <button data-sort="chrono" class="active">Chronological</button>
+      <button data-sort="score_desc">Score ↓</button>
+      <button data-sort="score_asc">Score ↑</button>
+    </div>
+    <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
+    <input type="search" id="filter" placeholder="Filter VOD title…">
+  </span>
+</header>
+<div class="filenote" id="fileNote" style="display:none">
+  ⚠️ Opened as a local file — the embedded player and data loading need http.
+  Use the GitHub Pages URL, or run <code>python -m http.server</code> in this folder.
+</div>
+
+<div class="main">
+  <div class="player-col">
+    <div class="player-box">
+      <div class="player-ph" id="ph">Click a moment to play it here.</div>
+      <iframe id="player" src="" title="YouTube player" style="display:none"
+        allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+    </div>
+    <div class="now" id="now"></div>
+  </div>
+  <div class="list-col"><div id="list"><div class="empty">Loading data…</div></div></div>
+</div>
+<footer id="foot"></footer>
+
+<script>
+let DATA = null, DET = {}, active = new Set(), sortMode = "chrono", activeChip = null;
+
+function fmtDur(sec){ sec=Math.round(sec||0); if(!sec) return "";
+  const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
+  return (h?h+"h":"")+String(m).padStart(h?2:1,"0")+"m"+String(s).padStart(2,"0"); }
+function esc(s){ return (s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function sortItems(items){ const a=items.slice();
+  if(sortMode==="score_desc") a.sort((x,y)=>y.score-x.score);
+  else if(sortMode==="score_asc") a.sort((x,y)=>x.score-y.score);
+  else a.sort((x,y)=>x.t-y.t); return a; }
+
+function playHere(videoId, seconds, chipEl, label){
+  const card = chipEl.closest(".chip");
+  if(activeChip) activeChip.classList.remove("active");
+  activeChip = card; if(card) card.classList.add("active");
+  document.getElementById("ph").style.display = "none";
+  const f = document.getElementById("player");
+  f.style.display = "block";
+  f.src = "https://www.youtube.com/embed/" + videoId + "?start=" + seconds + "&autoplay=1&rel=0";
+  document.getElementById("now").innerHTML =
+    "▶ <b>" + esc(label) + "</b> @ " + card.querySelector(".t").textContent;
+  if(window.innerWidth <= 900) window.scrollTo({top:0, behavior:"smooth"});
+}
+function copyText(text, btn){
+  const label = btn.textContent;
+  const done = ()=>{ btn.textContent="✓"; btn.classList.add("ok");
+    setTimeout(()=>{ btn.textContent=label; btn.classList.remove("ok"); },1200); };
+  if(navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(done).catch(()=>fb(text,done));
+  else fb(text,done);
+}
+function fb(text, done){ const ta=document.createElement("textarea"); ta.value=text;
+  ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta);
+  ta.select(); try{ document.execCommand("copy"); done(); }catch(e){} document.body.removeChild(ta); }
+
+function renderFilters(){
+  const box = document.getElementById("detFilters"); box.innerHTML = "";
+  DATA.detectors.forEach(d => {
+    const b = document.createElement("button");
+    b.className = "dchip" + (active.has(d.id)?" on":"");
+    b.style.setProperty("--c", d.color);
+    b.innerHTML = `<span class="dot"></span>${d.emoji||""} ${esc(d.label)}`;
+    b.onclick = () => { active.has(d.id)?active.delete(d.id):active.add(d.id);
+      b.classList.toggle("on"); render(); };
+    box.appendChild(b);
+  });
+}
+
+function render(){
+  const minScore = parseFloat(document.getElementById("minScore").value);
+  const q = document.getElementById("filter").value.trim().toLowerCase();
+  const list = document.getElementById("list"); list.innerHTML = "";
+  let nV=0, nE=0;
+
+  DATA.vods.forEach(v => {
+    if(q && !(v.title||"").toLowerCase().includes(q)) return;
+    const items = v.items.filter(it => active.has(it.type) && it.score >= minScore);
+    if(!items.length) return;
+    nV++; nE += items.length;
+
+    const det = document.createElement("details");
+    det.className = "group"; det.open = true;
+    const byType = {}; items.forEach(it => byType[it.type]=(byType[it.type]||0)+1);
+    const counts = DATA.detectors.filter(d=>byType[d.id]).map(d=>`${d.emoji||""} ${byType[d.id]}`).join("  ");
+    const meta = [v.date, fmtDur(v.duration), counts].filter(Boolean).join("  ·  ");
+    const thumb = v.thumbnail ? `<img class="thumb" src="${v.thumbnail}" loading="lazy" alt="">` : "";
+    const sum = document.createElement("summary");
+    sum.innerHTML = `<span class="caret">▶</span>${thumb}
+      <span class="ginfo"><span class="gtitle">${esc(v.title)}</span>
+      <span class="gmeta">${esc(meta)}</span></span>`;
+    det.appendChild(sum);
+
+    const chips = document.createElement("div"); chips.className = "chips";
+    sortItems(items).forEach(it => {
+      const d = DET[it.type] || {color:"#888",emoji:"",label:it.type};
+      const chip = document.createElement("div");
+      chip.className = "chip"; chip.style.setProperty("--c", d.color);
+      chip.title = `${d.label} · score ${it.score} · PANNs ${it.panns}`;
+
+      const play = document.createElement("button");
+      play.className = "play";
+      play.innerHTML = `<span class="em">${d.emoji||""}</span><span class="t">${it.hms}</span>
+        <span class="sc">${it.score.toFixed(2)}</span>`;
+      play.onclick = () => playHere(v.vod_id, it.t, play, v.title);
+
+      const open = document.createElement("a");
+      open.className = "act"; open.href = it.url; open.target = "_blank"; open.rel = "noopener";
+      open.textContent = "↗"; open.title = "Open on YouTube (new tab)";
+
+      const copy = document.createElement("button");
+      copy.className = "act"; copy.textContent = "⧉"; copy.title = "Copy link: " + it.url;
+      copy.onclick = e => { e.preventDefault(); e.stopPropagation(); copyText(it.url, copy); };
+
+      chip.appendChild(play); chip.appendChild(open); chip.appendChild(copy);
+      chips.appendChild(chip);
+    });
+    det.appendChild(chips); list.appendChild(det);
+  });
+
+  if(!nV) list.innerHTML = '<div class="empty">No detections match the current filters.</div>';
+  document.getElementById("summary").textContent = `${nV} VOD${nV>1?"s":""} · ${nE} moments`;
+}
+
+document.getElementById("minScore").addEventListener("input", e => {
+  document.getElementById("minScoreVal").textContent = parseFloat(e.target.value).toFixed(2); render(); });
+document.getElementById("filter").addEventListener("input", render);
+document.querySelectorAll("#sortCtl button").forEach(b => b.addEventListener("click", () => {
+  sortMode = b.dataset.sort;
+  document.querySelectorAll("#sortCtl button").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active"); render(); }));
+
+if(location.protocol === "file:") document.getElementById("fileNote").style.display = "block";
+
+fetch("data.json?v=" + Date.now()).then(r => r.json()).then(d => {
+  DATA = d; d.detectors.forEach(x => { DET[x.id] = x; active.add(x.id); });
+  document.getElementById("foot").textContent =
+    "Generated " + (d.generated_utc||"") + " UTC · click a moment to play it in the embedded player · ↗ opens YouTube · ⧉ copies the timestamped link.";
+  renderFilters(); render();
+}).catch(err => {
+  document.getElementById("list").innerHTML =
+    '<div class="empty">Could not load <b>data.json</b>. Serve this folder over http (GitHub Pages or <code>python -m http.server</code>), not file://.</div>';
+  document.getElementById("summary").textContent = "";
+});
+</script>
+</body>
+</html>
