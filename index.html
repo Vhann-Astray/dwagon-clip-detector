@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SillyDwagonDetector — Stream moments</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%92%9B</text></svg>">
 <style>
   :root { --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --text:#e7e9ee;
     --muted:#9aa3b2; --accent:#ff5470; --line:#272c37; }
@@ -145,7 +146,7 @@
 </head>
 <body>
 <header>
-  <h1>🐲 SillyDwagonDetector</h1>
+  <h1>🐲💛 SillyDwagonDetector</h1>
   <span class="meta" id="summary">Loading…</span>
   <span class="ctl" id="detFilters"></span>
   <span class="spacer"></span>
@@ -491,7 +492,7 @@ fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   DET["search"]=SEARCH;
   if(d.vods&&d.vods.length) openVods.add(d.vods[0].vod_id);  // 1re VOD dépliée
   document.getElementById("foot").textContent=
-    "🐲 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · search what she said · ←/→ to step.";
+    "🐲💛 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · search what she said · ←/→ to step.";
   renderFilters(); render();
   // Prefetch des transcripts en arrière-plan (ne bloque pas l'affichage initial).
   fetch("transcripts.json?v="+Date.now()).then(r=>r.json()).then(t=>{
