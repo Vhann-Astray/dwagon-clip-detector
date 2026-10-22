@@ -123,6 +123,15 @@
   .chip .act:hover { color:var(--c); background:#ffffff0d; }
   .chip .act.ok { color:#7CFC98; }
   .nowtext { font-style:italic; }
+  /* recherche plein-texte */
+  input[type=search].kw { min-width:210px; border-color:#1e5a66; }
+  input[type=search].kw:focus { outline:1px solid #22d3ee; }
+  mark { background:#22d3ee; color:#06222a; border-radius:3px; padding:0 2px; font-weight:600; }
+  .shead { padding:9px 14px 0; font-size:12px; font-weight:650; color:#22d3ee; }
+  .chips.srch { padding-top:7px; }
+  .chip.sr .snip { white-space:normal; display:-webkit-box; -webkit-line-clamp:2;
+    -webkit-box-orient:vertical; overflow:hidden; }
+  .tick.tsearch { width:3px; opacity:.95; z-index:2; box-shadow:0 0 4px #22d3ee; }
   /* aperçu storyboard flottant au survol d'une pastille */
   #sbprev { position:fixed; z-index:50; pointer-events:none; display:none;
     width:248px; height:139px; border-radius:8px; border:1px solid var(--line);
@@ -148,6 +157,7 @@
     </div>
     <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
     <input type="search" id="filter" placeholder="Filter VOD title…">
+    <input type="search" id="kw" class="kw" placeholder="🔎 Search what she said…">
     <button id="toggleAll" class="dchip">Expand all</button>
   </span>
 </header>
@@ -188,6 +198,26 @@ let DATA=null, DET={}, active=new Set(), sortMode="chrono";
 let flat=[], cur=-1;   // flat = moments visibles dans l'ordre d'affichage
 let player=null, playerReady=false, curVid=null, pending=null;
 let openVods=new Set();   // VOD dépliées (accordéon) — persisté entre les rendus
+let scrollToVod=null, pendingSelect=null;   // post-render : recentrage / sélection différée
+let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
+const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
+
+function debounce(fn, ms){ let h; return function(){ clearTimeout(h); h=setTimeout(fn, ms); }; }
+
+// --- Recherche plein-texte dans les transcripts ---
+function kwVal(){ return document.getElementById("kw").value.trim(); }
+function hmsT(s){ s=Math.round(s); const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  return h+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"); }
+function matchSegs(vid, kw){ const arr=TRANSCRIPTS[vid]; if(!arr) return [];
+  const k=kw.toLowerCase(), out=[];
+  for(let i=0;i<arr.length;i++){ if(arr[i][1].toLowerCase().includes(k)){
+    out.push({t:arr[i][0], x:arr[i][1]}); if(out.length>=60) break; } }
+  return out; }
+function hl(raw, kw){ if(!kw) return esc(raw);
+  const k=kw.toLowerCase(), low=raw.toLowerCase(); let out="", i=0;
+  while(true){ const j=low.indexOf(k,i); if(j<0){ out+=esc(raw.slice(i)); break; }
+    out+=esc(raw.slice(i,j))+"<mark>"+esc(raw.slice(j,j+k.length))+"</mark>"; i=j+k.length; }
+  return out; }
 
 // --- Aperçu storyboard : calcule la tuile de la sprite à l'instant t ---
 function sbStyle(sb, t){
@@ -259,7 +289,8 @@ function select(i){
   document.getElementById("nowTitle").textContent=m.title;
   document.getElementById("nowSub").innerHTML=
     `<span class="pill" style="background:${d.color}">${d.emoji||""} ${esc(d.label)}</span>`+
-    `<span>@ ${m.hms}</span><span>score ${m.score.toFixed(2)}</span>`;
+    `<span>@ ${m.hms}</span>`+
+    (m.score!=null?`<span>score ${m.score.toFixed(2)}</span>`:"");
   document.getElementById("nowText").textContent=m.text?("“"+m.text+"”"):"";
   document.getElementById("nowOpen").href=m.url;
   document.getElementById("counter").textContent=(cur+1)+" / "+flat.length;
@@ -280,35 +311,46 @@ function renderFilters(){
 function render(){
   const minScore=parseFloat(document.getElementById("minScore").value);
   const q=document.getElementById("filter").value.trim().toLowerCase();
+  const kw=kwVal();
   const list=document.getElementById("list"); list.innerHTML=""; flat=[]; cur=-1;
-  let nV=0,nE=0;
+  let nV=0,nE=0,nS=0;
+  // En recherche : auto-déplier seulement si peu de VOD matchent (sinon on
+  // laisse replié → on ne construit pas des milliers de pastilles d'un coup).
+  const kwVodCount = kw ? DATA.vods.filter(v=>matchSegs(v.vod_id,kw).length).length : 0;
+  const autoKwExpand = kw && kwVodCount<=5;
 
   DATA.vods.forEach(v=>{
     if(q && !(v.title||"").toLowerCase().includes(q)) return;
     const items=sortItems(v.items.filter(it=>active.has(it.type)&&it.score>=minScore));
-    if(!items.length) return;
-    nV++; nE+=items.length;
+    // résultats de recherche (superposés aux détections)
+    const sres = kw ? matchSegs(v.vod_id, kw) : [];
+    // visibilité : si recherche active → VOD avec match ; sinon → VOD avec détections.
+    if(kw){ if(!sres.length) return; } else { if(!items.length) return; }
+    nV++; nE+=items.length; nS+=sres.length;
 
-    const g=document.createElement("div"); g.className="group";
-    // dépliée si : recherche active (on fouille) OU mémorisée dans openVods.
-    const openNow = q ? true : openVods.has(v.vod_id);
+    const g=document.createElement("div"); g.className="group"; g.dataset.vod=v.vod_id;
+    // dépliée si : filtre titre actif, recherche avec peu de matches, OU mémorisée.
+    let openNow = q ? true : openVods.has(v.vod_id);
+    if(autoKwExpand) openNow=true;
     if(openNow) g.classList.add("open");
 
     const byType={}; items.forEach(it=>byType[it.type]=(byType[it.type]||0)+1);
-    const counts=DATA.detectors.filter(d=>byType[d.id]).map(d=>
+    let counts=DATA.detectors.filter(d=>byType[d.id]).map(d=>
       `<span class="cc" style="color:${d.color}">${d.emoji||""} ${byType[d.id]}</span>`).join("");
+    if(kw) counts+=`<span class="cc" style="color:${SEARCH.color}">🔎 ${sres.length}</span>`;
     const meta=[v.date,fmtDur(v.duration)].filter(Boolean).join("  ·  ");
     const thumb=v.thumbnail?`<img class="thumb" src="${v.thumbnail}" loading="lazy" alt="">`:"";
     const head=document.createElement("div"); head.className="ghead";
     head.innerHTML=`<span class="chev">▶</span>${thumb}`+
       `<div class="ginfo"><div class="gtitle">${esc(v.title)}</div>`+
       `<div class="gmeta">${esc(meta)}</div></div><div class="gcounts">${counts}</div>`;
-    head.onclick=()=>{ const nowOpen=g.classList.toggle("open");
-      nowOpen?openVods.add(v.vod_id):openVods.delete(v.vod_id); syncToggleAll(); };
+    head.onclick=()=>{ const willOpen=!g.classList.contains("open");
+      willOpen?openVods.add(v.vod_id):openVods.delete(v.vod_id);
+      scrollToVod=willOpen?v.vod_id:null; render(); };   // re-render : construit/retire le body
     g.appendChild(head);
 
-    // timeline (ordre chronologique indépendamment du tri des pastilles) — toujours visible
-    const dur=v.duration||Math.max(...items.map(i=>i.t))||1;
+    // timeline (ordre chronologique) — détections + ticks de recherche superposés
+    const dur=v.duration||Math.max(...items.map(i=>i.t),...sres.map(s=>s.t),1);
     const tl=document.createElement("div"); tl.className="timeline";
     const chrono=items.slice().sort((a,b)=>a.t-b.t);
     chrono.forEach(it=>{ const d=DET[it.type]||{color:"#888"};
@@ -321,44 +363,91 @@ function render(){
       if(v.sb){ tk.addEventListener("mouseenter",e=>sbShow(v.sb,it.t,e));
         tk.addEventListener("mousemove",sbMove); tk.addEventListener("mouseleave",sbHide); }
       tl.appendChild(tk); });
+    sres.forEach(s=>{ const tk=document.createElement("div"); tk.className="tick tsearch";
+      tk.style.setProperty("--c",SEARCH.color);
+      tk.style.left=(100*s.t/dur)+"%"; tk.style.height="26px";
+      tk.title=`${hmsT(s.t)} · 🔎 ${s.x}`;
+      tk.dataset.key=v.vod_id+"@"+s.t+"@search";
+      if(v.sb){ tk.addEventListener("mouseenter",e=>sbShow(v.sb,s.t,e));
+        tk.addEventListener("mousemove",sbMove); tk.addEventListener("mouseleave",sbHide); }
+      tl.appendChild(tk); });
     g.appendChild(tl);
 
+    // Le body (pastilles) n'est construit QUE si la carte est ouverte →
+    // les cartes repliées ne coûtent qu'un en-tête + une timeline.
+    if(openNow){
     const body=document.createElement("div"); body.className="body";
-    const chips=document.createElement("div"); chips.className="chips";
-    items.forEach(it=>{
-      const d=DET[it.type]||{color:"#888",emoji:"",label:it.type};
-      const chip=document.createElement("div"); chip.className="chip";
-      chip.style.setProperty("--c",d.color);
+
+    // --- pastille générique (détection OU résultat de recherche) ---
+    function makeChip(o){
+      // o: {t,hms,score,type,emoji,color,url,text,html,search}
+      const chip=document.createElement("div"); chip.className="chip"+(o.search?" sr":"");
+      chip.style.setProperty("--c",o.color);
       const play=document.createElement("button"); play.className="play";
-      play.innerHTML=`<span class="row1"><span class="em">${d.emoji||""}</span>`+
-        `<span class="t">${it.hms}</span><span class="sc">${it.score.toFixed(2)}</span></span>`+
-        `<span class="snip">${esc(it.text||"")}</span>`;
-      if(it.text) play.title=it.text;
-      const open=document.createElement("a"); open.className="act"; open.href=it.url;
+      const scoreHtml=o.score!=null?`<span class="sc">${o.score.toFixed(2)}</span>`:"";
+      play.innerHTML=`<span class="row1"><span class="em">${o.emoji||""}</span>`+
+        `<span class="t">${o.hms}</span>${scoreHtml}</span>`+
+        `<span class="snip">${o.html!=null?o.html:esc(o.text||"")}</span>`;
+      if(o.text) play.title=o.text;
+      const open=document.createElement("a"); open.className="act"; open.href=o.url;
       open.target="_blank"; open.rel="noopener"; open.textContent="↗"; open.title="Open on YouTube";
       const copy=document.createElement("button"); copy.className="act"; copy.textContent="⧉";
-      copy.title="Copy link"; copy.onclick=e=>{ e.preventDefault(); e.stopPropagation(); copyText(it.url,copy); };
+      copy.title="Copy link"; copy.onclick=e=>{ e.preventDefault(); e.stopPropagation(); copyText(o.url,copy); };
       chip.appendChild(play); chip.appendChild(open); chip.appendChild(copy);
-      if(v.sb){ chip.addEventListener("mouseenter",e=>sbShow(v.sb,it.t,e));
+      if(v.sb){ chip.addEventListener("mouseenter",e=>sbShow(v.sb,o.t,e));
         chip.addEventListener("mousemove",sbMove); chip.addEventListener("mouseleave",sbHide); }
-      chips.appendChild(chip);
       const idx=flat.length;
-      flat.push({vod:v.vod_id,title:v.title,t:it.t,hms:it.hms,score:it.score,
-                 type:it.type,url:it.url,text:it.text||"",el:chip,group:g});
+      flat.push({vod:v.vod_id,title:v.title,t:o.t,hms:o.hms,score:o.score,
+                 type:o.type,url:o.url,text:o.text||"",el:chip,group:g});
       play.onclick=()=>select(idx);
-    });
-    body.appendChild(chips); g.appendChild(body); list.appendChild(g);
+      return chip;
+    }
 
-    // relie chaque tick de timeline à l'index flat correspondant
+    if(items.length){
+      const chips=document.createElement("div"); chips.className="chips";
+      items.forEach(it=>{ const d=DET[it.type]||{color:"#888",emoji:"",label:it.type};
+        chips.appendChild(makeChip({t:it.t,hms:it.hms,score:it.score,type:it.type,
+          emoji:d.emoji,color:d.color,url:it.url,text:it.text||""})); });
+      body.appendChild(chips);
+    }
+    if(kw && sres.length){
+      const sh=document.createElement("div"); sh.className="shead";
+      sh.innerHTML=`🔎 ${sres.length} result${sres.length>1?"s":""} for “${esc(kw)}”`;
+      const schips=document.createElement("div"); schips.className="chips srch";
+      sres.forEach(s=>{ const tt=Math.max(0,Math.round(s.t-2));
+        schips.appendChild(makeChip({t:s.t,hms:hmsT(s.t),score:null,type:"search",
+          emoji:SEARCH.emoji,color:SEARCH.color,text:s.x,html:hl(s.x,kw),
+          url:"https://youtu.be/"+v.vod_id+"?t="+tt,search:true})); });
+      body.appendChild(sh); body.appendChild(schips);
+    }
+    g.appendChild(body);
+    }  // fin if(openNow)
+    list.appendChild(g);
+
+    // Relie chaque tick à son index flat. Si la carte est repliée (pas de flat),
+    // un clic sur un tick déplie la carte puis sélectionne le moment.
     const keyToIdx={}; flat.forEach((m,i)=>keyToIdx[m.vod+"@"+m.t+"@"+m.type]=i);
     tl.querySelectorAll(".tick").forEach(tk=>{ const i=keyToIdx[tk.dataset.key];
-      if(i!=null) tk.onclick=()=>select(i); });
+      if(i!=null) tk.onclick=()=>select(i);
+      else tk.onclick=()=>{ openVods.add(v.vod_id); scrollToVod=v.vod_id;
+        pendingSelect=tk.dataset.key; render(); }; });
   });
 
-  if(!nV) list.innerHTML='<div class="empty">No detections match the current filters.</div>';
-  document.getElementById("summary").textContent=`${nV} VOD${nV>1?"s":""} · ${nE} moments`;
+  if(!nV){ const msg = kw && !transcriptsReady
+      ? 'Indexing transcripts… try again in a second.'
+      : 'No results match the current filters.';
+    list.innerHTML='<div class="empty">'+msg+'</div>'; }
+  document.getElementById("summary").textContent=
+    `${nV} VOD${nV>1?"s":""} · ${nE} moments`+(kw?` · 🔎 ${nS}`:"");
   document.getElementById("counter").textContent="— / "+flat.length;
   document.getElementById("prevBtn").disabled=true; document.getElementById("nextBtn").disabled=flat.length===0;
+
+  // Post-rendu : sélection différée (tick d'une carte repliée) ou recentrage.
+  if(pendingSelect){ const key=pendingSelect; pendingSelect=null;
+    const i=flat.findIndex(m=>(m.vod+"@"+m.t+"@"+m.type)===key);
+    if(i>=0) select(i);
+  } else if(scrollToVod){ const el=list.querySelector('.group[data-vod="'+scrollToVod+'"] .ghead');
+    scrollToVod=null; if(el) el.scrollIntoView({block:"nearest"}); }
   syncToggleAll();
 }
 
@@ -366,8 +455,10 @@ function render(){
 function visibleVodIds(){
   const q=document.getElementById("filter").value.trim().toLowerCase();
   const minScore=parseFloat(document.getElementById("minScore").value);
+  const kw=kwVal();
   return DATA.vods.filter(v=>(!q||(v.title||"").toLowerCase().includes(q)) &&
-    v.items.some(it=>active.has(it.type)&&it.score>=minScore)).map(v=>v.vod_id);
+    (kw ? matchSegs(v.vod_id,kw).length>0
+        : v.items.some(it=>active.has(it.type)&&it.score>=minScore))).map(v=>v.vod_id);
 }
 function syncToggleAll(){ const btn=document.getElementById("toggleAll"); if(!DATA) return;
   const vis=visibleVodIds(); const allOpen=vis.length>0 && vis.every(id=>openVods.has(id));
@@ -383,6 +474,7 @@ document.getElementById("nowCopy").onclick=function(){ if(cur>=0) copyText(flat[
 document.getElementById("minScore").addEventListener("input",e=>{
   document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2); render(); });
 document.getElementById("filter").addEventListener("input",render);
+document.getElementById("kw").addEventListener("input",debounce(render,160));
 document.querySelectorAll("#sortCtl button").forEach(b=>b.addEventListener("click",()=>{
   sortMode=b.dataset.sort;
   document.querySelectorAll("#sortCtl button").forEach(x=>x.classList.remove("active"));
@@ -396,10 +488,16 @@ if(location.protocol==="file:") document.getElementById("fileNote").style.displa
 
 fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; active.add(x.id); });
+  DET["search"]=SEARCH;
   if(d.vods&&d.vods.length) openVods.add(d.vods[0].vod_id);  // 1re VOD dépliée
   document.getElementById("foot").textContent=
-    "🐲 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · ←/→ to step · ↗ opens YouTube · ⧉ copies the link.";
+    "🐲 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · search what she said · ←/→ to step.";
   renderFilters(); render();
+  // Prefetch des transcripts en arrière-plan (ne bloque pas l'affichage initial).
+  fetch("transcripts.json?v="+Date.now()).then(r=>r.json()).then(t=>{
+    TRANSCRIPTS=t.t||{}; transcriptsReady=true;
+    if(kwVal()) render();   // rafraîchit si une recherche attend déjà
+  }).catch(()=>{});
 }).catch(err=>{
   document.getElementById("list").innerHTML=
     '<div class="empty">Could not load <b>data.json</b>. Serve this folder over http (GitHub Pages or <code>python -m http.server</code>), not file://.</div>';
