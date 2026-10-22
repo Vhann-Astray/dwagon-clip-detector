@@ -69,42 +69,64 @@
 
   /* ---- List column ---- */
   .list-col { min-width:0; }
-  .group { margin-bottom:14px; border:1px solid var(--line); border-radius:12px;
+  .group { margin-bottom:12px; border:1px solid var(--line); border-radius:12px;
     overflow:hidden; background:var(--panel); }
-  .ghead { padding:11px 14px; display:flex; gap:12px; align-items:center; background:var(--panel2); }
+  .ghead { padding:11px 14px; display:flex; gap:12px; align-items:center; background:var(--panel2);
+    cursor:pointer; user-select:none; }
+  .ghead:hover { background:#232834; }
+  .group.open .ghead { position:sticky; top:51px; z-index:6; border-bottom:1px solid var(--line);
+    box-shadow:0 6px 14px -8px #000; }
+  @media (max-width:980px){ .group.open .ghead { position:static; } }
+  .chev { flex:none; color:var(--muted); font-size:12px; width:14px; text-align:center;
+    transition:transform .15s; }
+  .group.open .chev { transform:rotate(90deg); }
   .thumb { width:72px; height:40px; object-fit:cover; border-radius:6px; flex:none;
     background:#000; border:1px solid var(--line); }
   .ginfo { flex:1; min-width:0; }
   .gtitle { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .gmeta { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis;
-    white-space:nowrap; }
-  /* timeline */
-  .timeline { position:relative; height:30px; margin:0 14px; border-radius:6px;
-    background:linear-gradient(var(--panel2),var(--panel2)); border:1px solid var(--line);
-    margin-top:10px; cursor:crosshair; }
+    white-space:nowrap; margin-top:1px; }
+  .gcounts { flex:none; display:flex; gap:8px; align-items:center; font-size:13px;
+    font-variant-numeric:tabular-nums; }
+  .gcounts .cc { display:flex; gap:3px; align-items:center; font-weight:650; }
+  /* timeline (toujours visible, même replié : vue d'ensemble) */
+  .timeline { position:relative; height:26px; margin:10px 14px 0; border-radius:6px;
+    background:var(--panel2); border:1px solid var(--line); cursor:crosshair; }
+  .group.open .timeline { margin-bottom:2px; }
   .tick { position:absolute; bottom:0; width:3px; margin-left:-1px; border-radius:2px;
     background:var(--c); opacity:.85; cursor:pointer; transition:transform .1s; }
   .tick:hover { transform:scaleX(2.4); opacity:1; }
-  .chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(205px,1fr));
+  .body { display:none; }
+  .group.open .body { display:block; }
+  .chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
     gap:7px; padding:12px 14px; }
   .chip { display:flex; align-items:stretch; background:var(--panel2);
     border:1px solid var(--line); border-left:3px solid var(--c); border-radius:8px;
-    overflow:hidden; transition:.1s; scroll-margin:70px; }
+    overflow:hidden; transition:.1s; scroll-margin:66px; }
   .chip:hover { border-color:var(--c); }
   .chip.active { background:#2a1b22; outline:2px solid var(--c); outline-offset:-1px; }
-  .chip .play { flex:1; display:flex; gap:7px; align-items:center; cursor:pointer;
-    background:none; border:0; color:var(--text); font:inherit; padding:6px 6px 6px 10px;
-    min-width:0; }
+  .chip .play { flex:1; display:flex; flex-direction:column; gap:2px; cursor:pointer;
+    background:none; border:0; color:var(--text); font:inherit; text-align:left;
+    padding:6px 6px 6px 10px; min-width:0; }
+  .chip .row1 { display:flex; gap:7px; align-items:center; }
   .chip .play:hover .t { color:var(--c); }
   .chip .em { font-size:13px; }
   .chip .t { font-variant-numeric:tabular-nums; font-weight:600; }
   .chip .sc { font-size:11px; color:#0b0d12; background:var(--c); border-radius:6px;
     padding:1px 6px; font-weight:700; margin-left:auto; }
+  .chip .snip { font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; max-width:100%; }
+  .chip .snip:empty::before { content:"—"; opacity:.4; }
   .chip .act { cursor:pointer; background:none; border:0; border-left:1px solid var(--line);
     color:var(--muted); padding:0 8px; font-size:13px; text-decoration:none; display:flex;
     align-items:center; }
   .chip .act:hover { color:var(--c); background:#ffffff0d; }
   .chip .act.ok { color:#7CFC98; }
+  .nowtext { font-style:italic; }
+  /* aperçu storyboard flottant au survol d'une pastille */
+  #sbprev { position:fixed; z-index:50; pointer-events:none; display:none;
+    width:248px; height:139px; border-radius:8px; border:1px solid var(--line);
+    box-shadow:0 10px 30px -6px #000; background:#000 no-repeat; background-size:cover; }
   .empty { color:var(--muted); padding:48px; text-align:center; }
   footer { color:var(--muted); font-size:12px; padding:16px 18px; border-top:1px solid var(--line);
     max-width:2000px; margin:0 auto; }
@@ -126,8 +148,10 @@
     </div>
     <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
     <input type="search" id="filter" placeholder="Filter VOD title…">
+    <button id="toggleAll" class="dchip">Expand all</button>
   </span>
 </header>
+<div id="sbprev"></div>
 <div class="filenote" id="fileNote" style="display:none">
   ⚠️ Opened as a local file — the player and data loading need http. Use the GitHub Pages URL
   or run <code>python -m http.server</code> in this folder.
@@ -142,6 +166,7 @@
     <div class="nowcard">
       <div class="t1" id="nowTitle">No moment selected</div>
       <div class="t2" id="nowSub"><span>Pick a timestamp or a timeline tick →</span></div>
+      <div class="t2 nowtext" id="nowText"></div>
       <div class="navrow">
         <button id="prevBtn" disabled>◀ Prev</button>
         <span class="counter" id="counter">— / —</span>
@@ -162,6 +187,33 @@
 let DATA=null, DET={}, active=new Set(), sortMode="chrono";
 let flat=[], cur=-1;   // flat = moments visibles dans l'ordre d'affichage
 let player=null, playerReady=false, curVid=null, pending=null;
+let openVods=new Set();   // VOD dépliées (accordéon) — persisté entre les rendus
+
+// --- Aperçu storyboard : calcule la tuile de la sprite à l'instant t ---
+function sbStyle(sb, t){
+  if(!sb||!sb.tpl||!sb.fd||!sb.rows||!sb.cols) return null;
+  const per=sb.rows*sb.cols, ptd=sb.fd/per;        // durée d'une tuile (s)
+  let g=Math.floor(t/ptd);                          // index global de tuile
+  let frag=Math.min(Math.floor(g/per), sb.n-1);
+  let tile=Math.min(g-frag*per, per-1); if(tile<0) tile=0;
+  const row=Math.floor(tile/sb.cols), col=tile%sb.cols;
+  const prev=document.getElementById("sbprev"), scale=prev.clientWidth/sb.tw||3.1;
+  return { url:sb.tpl.replace("{i}",frag),
+    size:(sb.cols*sb.tw*scale)+"px "+(sb.rows*sb.th*scale)+"px",
+    pos:"-"+(col*sb.tw*scale)+"px -"+(row*sb.th*scale)+"px" }; }
+
+function sbShow(sb, t, e){
+  const s=sbStyle(sb,t); const prev=document.getElementById("sbprev");
+  if(!s){ prev.style.display="none"; return; }
+  prev.style.backgroundImage="url('"+s.url+"')";
+  prev.style.backgroundSize=s.size; prev.style.backgroundPosition=s.pos;
+  prev.style.display="block"; sbMove(e); }
+function sbMove(e){ const prev=document.getElementById("sbprev");
+  let x=e.clientX+16, y=e.clientY+16;
+  if(x+prev.offsetWidth>innerWidth-8) x=e.clientX-prev.offsetWidth-16;
+  if(y+prev.offsetHeight>innerHeight-8) y=e.clientY-prev.offsetHeight-16;
+  prev.style.left=x+"px"; prev.style.top=Math.max(8,y)+"px"; }
+function sbHide(){ document.getElementById("sbprev").style.display="none"; }
 
 // API YouTube IFrame : seekTo si même vidéo (pas de rechargement), loadVideoById sinon.
 function onYouTubeIframeAPIReady(){
@@ -199,12 +251,16 @@ function select(i){
   if(i<0||i>=flat.length) return;
   if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
   cur=i; const m=flat[cur]; m.el.classList.add("active");
+  // déplie la VOD du moment (si on arrive depuis la timeline d'une carte repliée)
+  if(m.group && !m.group.classList.contains("open")){
+    m.group.classList.add("open"); openVods.add(m.vod); syncToggleAll(); }
   playAt(m.vod, m.t);
   const d=DET[m.type]||{color:"#888",emoji:"",label:m.type};
   document.getElementById("nowTitle").textContent=m.title;
   document.getElementById("nowSub").innerHTML=
     `<span class="pill" style="background:${d.color}">${d.emoji||""} ${esc(d.label)}</span>`+
     `<span>@ ${m.hms}</span><span>score ${m.score.toFixed(2)}</span>`;
+  document.getElementById("nowText").textContent=m.text?("“"+m.text+"”"):"";
   document.getElementById("nowOpen").href=m.url;
   document.getElementById("counter").textContent=(cur+1)+" / "+flat.length;
   document.getElementById("prevBtn").disabled=cur<=0;
@@ -234,16 +290,24 @@ function render(){
     nV++; nE+=items.length;
 
     const g=document.createElement("div"); g.className="group";
+    // dépliée si : recherche active (on fouille) OU mémorisée dans openVods.
+    const openNow = q ? true : openVods.has(v.vod_id);
+    if(openNow) g.classList.add("open");
+
     const byType={}; items.forEach(it=>byType[it.type]=(byType[it.type]||0)+1);
-    const counts=DATA.detectors.filter(d=>byType[d.id]).map(d=>`${d.emoji||""} ${byType[d.id]}`).join("  ");
-    const meta=[v.date,fmtDur(v.duration),counts].filter(Boolean).join("  ·  ");
+    const counts=DATA.detectors.filter(d=>byType[d.id]).map(d=>
+      `<span class="cc" style="color:${d.color}">${d.emoji||""} ${byType[d.id]}</span>`).join("");
+    const meta=[v.date,fmtDur(v.duration)].filter(Boolean).join("  ·  ");
     const thumb=v.thumbnail?`<img class="thumb" src="${v.thumbnail}" loading="lazy" alt="">`:"";
     const head=document.createElement("div"); head.className="ghead";
-    head.innerHTML=`${thumb}<div class="ginfo"><div class="gtitle">${esc(v.title)}</div>
-      <div class="gmeta">${esc(meta)}</div></div>`;
+    head.innerHTML=`<span class="chev">▶</span>${thumb}`+
+      `<div class="ginfo"><div class="gtitle">${esc(v.title)}</div>`+
+      `<div class="gmeta">${esc(meta)}</div></div><div class="gcounts">${counts}</div>`;
+    head.onclick=()=>{ const nowOpen=g.classList.toggle("open");
+      nowOpen?openVods.add(v.vod_id):openVods.delete(v.vod_id); syncToggleAll(); };
     g.appendChild(head);
 
-    // timeline (ordre chronologique indépendamment du tri des pastilles)
+    // timeline (ordre chronologique indépendamment du tri des pastilles) — toujours visible
     const dur=v.duration||Math.max(...items.map(i=>i.t))||1;
     const tl=document.createElement("div"); tl.className="timeline";
     const chrono=items.slice().sort((a,b)=>a.t-b.t);
@@ -251,32 +315,39 @@ function render(){
       const tk=document.createElement("div"); tk.className="tick";
       tk.style.setProperty("--c",d.color);
       tk.style.left=(100*it.t/dur)+"%";
-      tk.style.height=(30*(0.35+0.65*Math.min(it.score,1)))+"px";
+      tk.style.height=(26*(0.35+0.65*Math.min(it.score,1)))+"px";
       tk.title=`${it.hms} · ${(DET[it.type]||{}).label||it.type} · ${it.score.toFixed(2)}`;
       tk.dataset.key=v.vod_id+"@"+it.t+"@"+it.type;
+      if(v.sb){ tk.addEventListener("mouseenter",e=>sbShow(v.sb,it.t,e));
+        tk.addEventListener("mousemove",sbMove); tk.addEventListener("mouseleave",sbHide); }
       tl.appendChild(tk); });
     g.appendChild(tl);
 
+    const body=document.createElement("div"); body.className="body";
     const chips=document.createElement("div"); chips.className="chips";
     items.forEach(it=>{
       const d=DET[it.type]||{color:"#888",emoji:"",label:it.type};
       const chip=document.createElement("div"); chip.className="chip";
       chip.style.setProperty("--c",d.color);
-      chip.title=`${d.label} · score ${it.score} · PANNs ${it.panns}`;
       const play=document.createElement("button"); play.className="play";
-      play.innerHTML=`<span class="em">${d.emoji||""}</span><span class="t">${it.hms}</span>
-        <span class="sc">${it.score.toFixed(2)}</span>`;
+      play.innerHTML=`<span class="row1"><span class="em">${d.emoji||""}</span>`+
+        `<span class="t">${it.hms}</span><span class="sc">${it.score.toFixed(2)}</span></span>`+
+        `<span class="snip">${esc(it.text||"")}</span>`;
+      if(it.text) play.title=it.text;
       const open=document.createElement("a"); open.className="act"; open.href=it.url;
       open.target="_blank"; open.rel="noopener"; open.textContent="↗"; open.title="Open on YouTube";
       const copy=document.createElement("button"); copy.className="act"; copy.textContent="⧉";
       copy.title="Copy link"; copy.onclick=e=>{ e.preventDefault(); e.stopPropagation(); copyText(it.url,copy); };
       chip.appendChild(play); chip.appendChild(open); chip.appendChild(copy);
+      if(v.sb){ chip.addEventListener("mouseenter",e=>sbShow(v.sb,it.t,e));
+        chip.addEventListener("mousemove",sbMove); chip.addEventListener("mouseleave",sbHide); }
       chips.appendChild(chip);
       const idx=flat.length;
-      flat.push({vod:v.vod_id,title:v.title,t:it.t,hms:it.hms,score:it.score,type:it.type,url:it.url,el:chip});
+      flat.push({vod:v.vod_id,title:v.title,t:it.t,hms:it.hms,score:it.score,
+                 type:it.type,url:it.url,text:it.text||"",el:chip,group:g});
       play.onclick=()=>select(idx);
     });
-    g.appendChild(chips); list.appendChild(g);
+    body.appendChild(chips); g.appendChild(body); list.appendChild(g);
 
     // relie chaque tick de timeline à l'index flat correspondant
     const keyToIdx={}; flat.forEach((m,i)=>keyToIdx[m.vod+"@"+m.t+"@"+m.type]=i);
@@ -288,7 +359,23 @@ function render(){
   document.getElementById("summary").textContent=`${nV} VOD${nV>1?"s":""} · ${nE} moments`;
   document.getElementById("counter").textContent="— / "+flat.length;
   document.getElementById("prevBtn").disabled=true; document.getElementById("nextBtn").disabled=flat.length===0;
+  syncToggleAll();
 }
+
+// Bouton Expand all / Collapse all : reflète l'état et bascule toutes les VOD.
+function visibleVodIds(){
+  const q=document.getElementById("filter").value.trim().toLowerCase();
+  const minScore=parseFloat(document.getElementById("minScore").value);
+  return DATA.vods.filter(v=>(!q||(v.title||"").toLowerCase().includes(q)) &&
+    v.items.some(it=>active.has(it.type)&&it.score>=minScore)).map(v=>v.vod_id);
+}
+function syncToggleAll(){ const btn=document.getElementById("toggleAll"); if(!DATA) return;
+  const vis=visibleVodIds(); const allOpen=vis.length>0 && vis.every(id=>openVods.has(id));
+  btn.textContent=allOpen?"Collapse all":"Expand all"; btn.dataset.all=allOpen?"1":"0"; }
+document.getElementById("toggleAll").onclick=function(){
+  if(this.dataset.all==="1"){ visibleVodIds().forEach(id=>openVods.delete(id)); }
+  else { visibleVodIds().forEach(id=>openVods.add(id)); }
+  render(); };
 
 document.getElementById("prevBtn").onclick=()=>select(cur-1);
 document.getElementById("nextBtn").onclick=()=> select(cur<0?0:cur+1);
@@ -309,8 +396,9 @@ if(location.protocol==="file:") document.getElementById("fileNote").style.displa
 
 fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; active.add(x.id); });
+  if(d.vods&&d.vods.length) openVods.add(d.vods[0].vod_id);  // 1re VOD dépliée
   document.getElementById("foot").textContent=
-    "🐲 SillyDawgonDetector · data generated "+(d.generated_utc||"")+" UTC · click a moment (chip or timeline tick) to play · ←/→ to step through · ↗ opens YouTube · ⧉ copies the timestamped link.";
+    "🐲 SillyDawgonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · ←/→ to step · ↗ opens YouTube · ⧉ copies the link.";
   renderFilters(); render();
 }).catch(err=>{
   document.getElementById("list").innerHTML=
