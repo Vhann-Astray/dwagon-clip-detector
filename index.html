@@ -310,7 +310,7 @@ if(location.protocol==="file:") document.getElementById("fileNote").style.displa
 fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; active.add(x.id); });
   document.getElementById("foot").textContent=
-    "Generated "+(d.generated_utc||"")+" UTC · click a moment (chip or timeline tick) to play it · ←/→ to step through · ↗ YouTube · ⧉ copy link.";
+    "🐲 SillyDawgonDetector · data generated "+(d.generated_utc||"")+" UTC · click a moment (chip or timeline tick) to play · ←/→ to step through · ↗ opens YouTube · ⧉ copies the timestamped link.";
   renderFilters(); render();
 }).catch(err=>{
   document.getElementById("list").innerHTML=
