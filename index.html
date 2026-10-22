@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SillyDawgonDetector — Stream moments</title>
+<title>SillyDwagonDetector — Stream moments</title>
 <style>
   :root { --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --text:#e7e9ee;
     --muted:#9aa3b2; --accent:#ff5470; --line:#272c37; }
@@ -136,7 +136,7 @@
 </head>
 <body>
 <header>
-  <h1>🐲 SillyDawgonDetector</h1>
+  <h1>🐲 SillyDwagonDetector</h1>
   <span class="meta" id="summary">Loading…</span>
   <span class="ctl" id="detFilters"></span>
   <span class="spacer"></span>
@@ -398,7 +398,7 @@ fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; active.add(x.id); });
   if(d.vods&&d.vods.length) openVods.add(d.vods[0].vod_id);  // 1re VOD dépliée
   document.getElementById("foot").textContent=
-    "🐲 SillyDawgonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · ←/→ to step · ↗ opens YouTube · ⧉ copies the link.";
+    "🐲 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · ←/→ to step · ↗ opens YouTube · ⧉ copies the link.";
   renderFilters(); render();
 }).catch(err=>{
   document.getElementById("list").innerHTML=
