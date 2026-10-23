@@ -133,9 +133,41 @@
   .chip.sr .snip { white-space:normal; display:-webkit-box; -webkit-line-clamp:2;
     -webkit-box-orient:vertical; overflow:hidden; }
   .tick.tsearch { width:3px; opacity:.95; z-index:2; box-shadow:0 0 4px #22d3ee; }
+  /* boutons d'en-tête de VOD (focus / transcript) */
+  .gacts { flex:none; display:flex; gap:6px; }
+  .gbtn { background:var(--panel); border:1px solid var(--line); color:var(--muted);
+    border-radius:7px; cursor:pointer; padding:4px 8px; font:inherit; font-size:13px; line-height:1; }
+  .gbtn:hover { color:var(--text); border-color:var(--accent); }
+  .gbtn.on { color:#0b0d12; background:#ffd479; border-color:#ffd479; }
+  /* panneau transcript — ancré sur la colonne de droite, laisse le lecteur libre */
+  .modal { position:fixed; inset:0; z-index:100; pointer-events:none; }
+  .mbox { position:fixed; pointer-events:auto; display:flex; flex-direction:column;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    box-shadow:0 20px 60px -10px #000e; }
+  .mhead { display:flex; gap:10px; align-items:center; padding:11px 13px; border-bottom:1px solid var(--line);
+    background:var(--panel2); }
+  .mtitle { font-weight:650; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mclose { background:none; border:1px solid var(--line); color:var(--text); border-radius:8px;
+    cursor:pointer; padding:6px 11px; font:inherit; }
+  .mclose:hover { border-color:var(--accent); }
+  .mwrap { display:flex; flex:1; min-height:0; }
+  .mbody { flex:1; overflow-y:auto; padding:8px; scroll-behavior:smooth; }
+  /* rail vertical : position des occurrences du mot cherché dans le transcript */
+  .trail { flex:none; width:16px; position:relative; background:var(--panel2);
+    border-left:1px solid var(--line); }
+  .ttick { position:absolute; left:2px; right:2px; height:3px; margin-top:-1px; border-radius:2px;
+    background:#22d3ee; cursor:pointer; opacity:.8; }
+  .ttick:hover { opacity:1; transform:scaleY(2.2); }
+  .tline { display:flex; gap:10px; width:100%; text-align:left; background:none; border:0;
+    color:var(--text); font:inherit; padding:6px 10px; border-radius:7px; cursor:pointer; }
+  .tline:hover { background:#ffffff0d; }
+  .tline .tt { color:var(--muted); font-variant-numeric:tabular-nums; flex:none; font-size:12px;
+    width:60px; padding-top:2px; }
+  .tline.cur { background:#2a1b22; outline:1px solid var(--accent); outline-offset:-1px; }
+  .tline.cur .tt { color:var(--accent); }
   /* aperçu storyboard flottant au survol d'une pastille */
   #sbprev { position:fixed; z-index:50; pointer-events:none; display:none;
-    width:248px; height:139px; border-radius:8px; border:1px solid var(--line);
+    width:304px; height:171px; border-radius:8px; border:1px solid var(--line);
     box-shadow:0 10px 30px -6px #000; background:#000 no-repeat; background-size:cover; }
   .empty { color:var(--muted); padding:48px; text-align:center; }
   footer { color:var(--muted); font-size:12px; padding:16px 18px; border-top:1px solid var(--line);
@@ -168,6 +200,20 @@
   or run <code>python -m http.server</code> in this folder.
 </div>
 
+<div id="tmodal" class="modal" style="display:none">
+  <div class="mbox">
+    <div class="mhead">
+      <span class="mtitle" id="tmTitle">Transcript</span>
+      <input type="search" id="tsearch" class="kw" placeholder="🔎 Find in transcript…">
+      <button id="tmClose" class="mclose">✕</button>
+    </div>
+    <div class="mwrap">
+      <div class="mbody" id="tmBody"></div>
+      <div class="trail" id="tmRail" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
 <div class="main">
   <div class="player-col">
     <div class="player-box">
@@ -185,6 +231,7 @@
       </div>
       <div class="nowacts">
         <a id="nowOpen" href="#" target="_blank" rel="noopener">↗ YouTube</a>
+        <button id="nowTranscript">📄 Transcript</button>
         <button id="nowCopy">⧉ Copy link</button>
       </div>
       <div class="t2" style="margin-top:8px"><span>Keys: <kbd>←</kbd> <kbd>→</kbd> navigate</span></div>
@@ -200,6 +247,8 @@ let flat=[], cur=-1;   // flat = moments visibles dans l'ordre d'affichage
 let player=null, playerReady=false, curVid=null, pending=null;
 let openVods=new Set();   // VOD dépliées (accordéon) — persisté entre les rendus
 let scrollToVod=null, pendingSelect=null;   // post-render : recentrage / sélection différée
+let focusVod=null;        // VOD verrouillée (focus) — null = toutes
+let tVod=null;            // VOD affichée dans la modale transcript
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
 
@@ -219,6 +268,68 @@ function hl(raw, kw){ if(!kw) return esc(raw);
   while(true){ const j=low.indexOf(k,i); if(j<0){ out+=esc(raw.slice(i)); break; }
     out+=esc(raw.slice(i,j))+"<mark>"+esc(raw.slice(j,j+k.length))+"</mark>"; i=j+k.length; }
   return out; }
+
+// --- Modale transcript : transcript complet d'une VOD, clic sur une ligne = seek ---
+function buildTranscriptLines(vodId, kw){
+  const segs=TRANSCRIPTS[vodId]||[], body=document.getElementById("tmBody");
+  body.innerHTML=""; const frag=document.createDocumentFragment();
+  segs.forEach(([t,x])=>{ const b=document.createElement("button"); b.className="tline"; b.dataset.t=t;
+    b.innerHTML=`<span class="tt">${hmsT(t)}</span><span class="tx">${kw?hl(x,kw):esc(x)}</span>`;
+    b.onclick=()=>{ playAt(vodId, Math.max(0,t-1));
+      body.querySelectorAll(".tline.cur").forEach(e=>e.classList.remove("cur")); b.classList.add("cur"); };
+    frag.appendChild(b); });
+  body.appendChild(frag);
+}
+function scrollBodyToLine(ln){ const body=document.getElementById("tmBody");
+  body.querySelectorAll(".tline.cur").forEach(e=>e.classList.remove("cur")); ln.classList.add("cur");
+  const br=ln.getBoundingClientRect(), pr=body.getBoundingClientRect();
+  body.scrollTop += (br.top-pr.top) - body.clientHeight/2 + br.height/2; }
+function scrollTranscriptTo(t){ const body=document.getElementById("tmBody");
+  let target=null; body.querySelectorAll(".tline").forEach(ln=>{
+    if(parseFloat(ln.dataset.t)<=t) target=ln; });
+  if(target) scrollBodyToLine(target); }
+// Rail vertical : un tick par ligne contenant le mot cherché → clic = saut.
+function buildMatchRail(kw){
+  const rail=document.getElementById("tmRail"), body=document.getElementById("tmBody");
+  rail.innerHTML="";
+  const lines=body.querySelectorAll(".tline"), n=lines.length;
+  if(!kw||!n){ rail.style.display="none"; return; }
+  let any=false;
+  lines.forEach((ln,i)=>{ if(ln.querySelector("mark")){ any=true;
+    const tk=document.createElement("div"); tk.className="ttick"; tk.style.top=(100*i/n)+"%";
+    tk.title=hmsT(parseFloat(ln.dataset.t));
+    tk.onclick=()=>scrollBodyToLine(ln); rail.appendChild(tk); } });
+  rail.style.display=any?"block":"none";
+}
+// Ancre le panneau sur la colonne de droite (les cards) → le lecteur reste visible.
+function positionTranscript(){
+  const lc=document.querySelector(".list-col"), box=document.querySelector("#tmodal .mbox");
+  if(!lc||!box) return;
+  const r=lc.getBoundingClientRect(), top=56;
+  box.style.left=Math.max(6,r.left)+"px";
+  box.style.width=Math.max(280,r.width)+"px";
+  box.style.top=top+"px";
+  box.style.height=(window.innerHeight-top-10)+"px";
+}
+function openTranscript(vodId, focusT){
+  if(!vodId) return;
+  const v=DATA.vods.find(x=>x.vod_id===vodId);
+  tVod=vodId;
+  document.getElementById("tmTitle").textContent=v?v.title:vodId;
+  document.getElementById("tsearch").value=kwVal();   // pré-remplit le mot cherché
+  const body=document.getElementById("tmBody"), segs=TRANSCRIPTS[vodId];
+  const ready = transcriptsReady && segs && segs.length;
+  if(!transcriptsReady) body.innerHTML='<div class="empty">Transcript still loading… try again in a second.</div>';
+  else if(!segs||!segs.length) body.innerHTML='<div class="empty">No transcript available for this VOD.</div>';
+  else buildTranscriptLines(vodId, kwVal());
+  document.getElementById("tmodal").style.display="block";
+  positionTranscript();
+  buildMatchRail(ready?kwVal():"");
+  // rAF : on laisse le panneau se poser (layout) avant de calculer le scroll.
+  if(focusT!=null && ready) requestAnimationFrame(()=>scrollTranscriptTo(focusT));
+}
+function closeTranscript(){ document.getElementById("tmodal").style.display="none"; tVod=null; }
+function transcriptOpen(){ return document.getElementById("tmodal").style.display!=="none"; }
 
 // --- Aperçu storyboard : calcule la tuile de la sprite à l'instant t ---
 function sbStyle(sb, t){
@@ -321,6 +432,7 @@ function render(){
   const autoKwExpand = kw && kwVodCount<=5;
 
   DATA.vods.forEach(v=>{
+    if(focusVod && v.vod_id!==focusVod) return;   // verrou sur une seule VOD
     if(q && !(v.title||"").toLowerCase().includes(q)) return;
     const items=sortItems(v.items.filter(it=>active.has(it.type)&&it.score>=minScore));
     // résultats de recherche (superposés aux détections)
@@ -345,6 +457,18 @@ function render(){
     head.innerHTML=`<span class="chev">▶</span>${thumb}`+
       `<div class="ginfo"><div class="gtitle">${esc(v.title)}</div>`+
       `<div class="gmeta">${esc(meta)}</div></div><div class="gcounts">${counts}</div>`;
+    const gacts=document.createElement("div"); gacts.className="gacts";
+    const fb=document.createElement("button"); fb.className="gbtn"+(focusVod===v.vod_id?" on":"");
+    fb.textContent="📌"; fb.title="Focus this VOD (filter everything to it)";
+    fb.onclick=e=>{ e.stopPropagation(); focusVod=(focusVod===v.vod_id)?null:v.vod_id;
+      if(focusVod) openVods.add(v.vod_id); render(); };
+    const tb=document.createElement("button"); tb.className="gbtn"; tb.textContent="📄";
+    tb.title="Open full transcript (jumps to the selected moment)";
+    tb.onclick=e=>{ e.stopPropagation();
+      // si un moment de CETTE VOD est sélectionné, on ouvre dessus.
+      const ft=(cur>=0&&flat[cur]&&flat[cur].vod===v.vod_id)?flat[cur].t:null;
+      openTranscript(v.vod_id, ft); };
+    gacts.appendChild(fb); gacts.appendChild(tb); head.appendChild(gacts);
     head.onclick=()=>{ const willOpen=!g.classList.contains("open");
       willOpen?openVods.add(v.vod_id):openVods.delete(v.vod_id);
       scrollToVod=willOpen?v.vod_id:null; render(); };   // re-render : construit/retire le body
@@ -439,7 +563,7 @@ function render(){
       : 'No results match the current filters.';
     list.innerHTML='<div class="empty">'+msg+'</div>'; }
   document.getElementById("summary").textContent=
-    `${nV} VOD${nV>1?"s":""} · ${nE} moments`+(kw?` · 🔎 ${nS}`:"");
+    (focusVod?"📌 ":"")+`${nV} VOD${nV>1?"s":""} · ${nE} moments`+(kw?` · 🔎 ${nS}`:"");
   document.getElementById("counter").textContent="— / "+flat.length;
   document.getElementById("prevBtn").disabled=true; document.getElementById("nextBtn").disabled=flat.length===0;
 
@@ -457,7 +581,8 @@ function visibleVodIds(){
   const q=document.getElementById("filter").value.trim().toLowerCase();
   const minScore=parseFloat(document.getElementById("minScore").value);
   const kw=kwVal();
-  return DATA.vods.filter(v=>(!q||(v.title||"").toLowerCase().includes(q)) &&
+  return DATA.vods.filter(v=>(!focusVod||v.vod_id===focusVod) &&
+    (!q||(v.title||"").toLowerCase().includes(q)) &&
     (kw ? matchSegs(v.vod_id,kw).length>0
         : v.items.some(it=>active.has(it.type)&&it.score>=minScore))).map(v=>v.vod_id);
 }
@@ -476,11 +601,23 @@ document.getElementById("minScore").addEventListener("input",e=>{
   document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2); render(); });
 document.getElementById("filter").addEventListener("input",render);
 document.getElementById("kw").addEventListener("input",debounce(render,160));
+// Modale transcript : ouverture depuis la carte lecteur, fermeture, recherche interne.
+document.getElementById("nowTranscript").onclick=()=>{
+  const vid=curVid||(cur>=0?flat[cur].vod:null);
+  openTranscript(vid, cur>=0?flat[cur].t:null); };
+document.getElementById("tmClose").onclick=closeTranscript;
+document.getElementById("tsearch").addEventListener("input",debounce(()=>{
+  if(tVod&&transcriptsReady&&TRANSCRIPTS[tVod]){
+    const val=document.getElementById("tsearch").value.trim();
+    buildTranscriptLines(tVod, val); buildMatchRail(val); } },160));
+window.addEventListener("resize",()=>{ if(transcriptOpen()) positionTranscript(); });
 document.querySelectorAll("#sortCtl button").forEach(b=>b.addEventListener("click",()=>{
   sortMode=b.dataset.sort;
   document.querySelectorAll("#sortCtl button").forEach(x=>x.classList.remove("active"));
   b.classList.add("active"); render(); }));
 document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){ if(transcriptOpen()) closeTranscript(); return; }
+  if(transcriptOpen()) return;   // modale ouverte : pas de navigation ←/→
   if(/INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
   if(e.key==="ArrowRight"){ e.preventDefault(); select(cur<0?0:cur+1); }
   else if(e.key==="ArrowLeft"){ e.preventDefault(); select(cur-1); } });
