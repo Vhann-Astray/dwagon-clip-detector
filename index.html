@@ -652,19 +652,36 @@ function renderPager(pages){
 // Un changement de filtre/ordre repart page 1 (évite d'atterrir hors plage).
 function reRender(){ page=0; render(); }
 
-// Ajuste pageSize pour que la liste remplisse la hauteur du lecteur (pas de scroll).
-// Mesuré après rendu : hauteur du lecteur / hauteur d'une carte repliée.
+// Ajuste pageSize pour que la liste remplisse la hauteur du lecteur (sans scroll).
+// Par position : on ajoute des cartes tant qu'il reste de la place sous la
+// dernière jusqu'au bas du lecteur (léger débordement toléré → remplit pile).
 function fitPage(){
-  if(fitting || window.innerWidth<=980) return;   // mono-colonne : empilé, pas de fit
+  if(fitting || window.innerWidth<=980 || !DATA) return;   // mono-colonne : empilé
   const pc=document.querySelector(".player-col"), list=document.getElementById("list");
   if(!pc || !list) return;
-  const card=list.querySelector(".group:not(.open)") || list.querySelector(".group");
-  if(!card) return;
-  const C=card.getBoundingClientRect().height + parseFloat(getComputedStyle(card).marginBottom||"0");
-  const H=pc.getBoundingClientRect().height;
-  if(C<=0 || H<=0) return;                          // pas de layout (ex. jsdom) → on garde pageSize
-  const fit=Math.max(1, Math.floor((H-48)/C));      // -48 : marge pour la barre de pages
-  if(fit!==pageSize){ fitting=true; pageSize=fit; render(); fitting=false; }
+  const pager=document.getElementById("pager");
+  for(let i=0;i<8;i++){
+    const probe=list.querySelector(".group:not(.open)") || list.querySelector(".group");
+    if(!probe) return;
+    const C=probe.getBoundingClientRect().height + parseFloat(getComputedStyle(probe).marginBottom||"0");
+    if(C<=0) return;                                 // pas de layout (ex. jsdom) → on garde pageSize
+    const rendered=list.querySelectorAll(".group").length;
+    const last=list.querySelector(".group:last-child");
+    const lastBottom=last?last.getBoundingClientRect().bottom:pc.getBoundingClientRect().top;
+    const pagerH=(pager && pager.style.display!=="none")?pager.getBoundingClientRect().height:0;
+    // Cible : bas du lecteur, mais jamais au-delà du viewport (réserve le
+    // débordement toléré de 0.65 carte + la barre de pages → zéro scroll).
+    const safe=window.innerHeight - pagerH - 8 - C*0.65;
+    const target=Math.min(pc.getBoundingClientRect().bottom, safe);
+    const room=target - lastBottom;
+    let next=pageSize;
+    // seuils ajout/retrait dont la somme = 1 carte → convergence sans oscillation
+    if(room>=C*0.35 && rendered>=pageSize) next=pageSize+Math.max(1,Math.floor(room/C));
+    else if(room<-C*0.65) next=pageSize-1;
+    next=Math.max(1,next);
+    if(next===pageSize) break;
+    fitting=true; pageSize=next; render(); fitting=false;
+  }
 }
 
 // Bouton Expand all / Collapse all : reflète l'état et bascule toutes les VOD.
