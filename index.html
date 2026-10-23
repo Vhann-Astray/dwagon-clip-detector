@@ -151,7 +151,7 @@
     cursor:pointer; padding:6px 11px; font:inherit; }
   .mclose:hover { border-color:var(--accent); }
   .mwrap { display:flex; flex:1; min-height:0; }
-  .mbody { flex:1; overflow-y:auto; padding:8px; scroll-behavior:smooth; }
+  .mbody { flex:1; overflow-y:auto; padding:8px; }
   /* rail vertical : position des occurrences du mot cherché dans le transcript */
   .trail { flex:none; width:16px; position:relative; background:var(--panel2);
     border-left:1px solid var(--line); }
@@ -280,10 +280,18 @@ function buildTranscriptLines(vodId, kw){
     frag.appendChild(b); });
   body.appendChild(frag);
 }
+// Scroll animé à durée fixe (plus rapide/constant que scroll-behavior:smooth).
+function animScroll(el, to, dur){
+  to=Math.max(0, Math.min(to, el.scrollHeight-el.clientHeight));
+  const from=el.scrollTop, d=to-from, t0=performance.now();
+  if(Math.abs(d)<2){ el.scrollTop=to; return; }
+  (function step(now){ let p=Math.min(1,(now-t0)/dur); p=1-Math.pow(1-p,3); // easeOutCubic
+    el.scrollTop=from+d*p; if(p<1) requestAnimationFrame(step); })(t0);
+}
 function scrollBodyToLine(ln){ const body=document.getElementById("tmBody");
   body.querySelectorAll(".tline.cur").forEach(e=>e.classList.remove("cur")); ln.classList.add("cur");
   const br=ln.getBoundingClientRect(), pr=body.getBoundingClientRect();
-  body.scrollTop += (br.top-pr.top) - body.clientHeight/2 + br.height/2; }
+  animScroll(body, body.scrollTop + (br.top-pr.top) - body.clientHeight/2 + br.height/2, 170); }
 function scrollTranscriptTo(t){ const body=document.getElementById("tmBody");
   let target=null; body.querySelectorAll(".tline").forEach(ln=>{
     if(parseFloat(ln.dataset.t)<=t) target=ln; });
@@ -414,6 +422,11 @@ function select(i){
   document.getElementById("nextBtn").disabled=cur>=flat.length-1;
   m.el.scrollIntoView({block:"nearest", behavior:"smooth"});
   if(window.innerWidth<=980) window.scrollTo({top:0, behavior:"smooth"});
+  // Si la modale transcript est ouverte, elle suit la navigation Prev/Next.
+  if(transcriptOpen()){
+    if(tVod===m.vod) scrollTranscriptTo(m.t);
+    else openTranscript(m.vod, m.t);   // autre VOD → recharge le transcript
+  }
 }
 
 function renderFilters(){
