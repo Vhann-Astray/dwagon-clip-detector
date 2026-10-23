@@ -339,17 +339,21 @@ function sbStyle(sb, t){
   let frag=Math.min(Math.floor(g/per), sb.n-1);
   let tile=Math.min(g-frag*per, per-1); if(tile<0) tile=0;
   const row=Math.floor(tile/sb.cols), col=tile%sb.cols;
-  const prev=document.getElementById("sbprev"), scale=prev.clientWidth/sb.tw||3.1;
+  // échelle = largeur affichée / largeur native de la vignette (une tuile remplit
+  // l'aperçu). clientWidth doit être lu APRÈS display:block (sinon 0 → crop).
+  const prev=document.getElementById("sbprev"), scale=(prev.clientWidth||302)/sb.tw;
   return { url:sb.tpl.replace("{i}",frag),
     size:(sb.cols*sb.tw*scale)+"px "+(sb.rows*sb.th*scale)+"px",
     pos:"-"+(col*sb.tw*scale)+"px -"+(row*sb.th*scale)+"px" }; }
 
 function sbShow(sb, t, e){
-  const s=sbStyle(sb,t); const prev=document.getElementById("sbprev");
+  const prev=document.getElementById("sbprev");
+  prev.style.display="block";          // visible d'abord → clientWidth correct
+  const s=sbStyle(sb,t);
   if(!s){ prev.style.display="none"; return; }
   prev.style.backgroundImage="url('"+s.url+"')";
   prev.style.backgroundSize=s.size; prev.style.backgroundPosition=s.pos;
-  prev.style.display="block"; sbMove(e); }
+  sbMove(e); }
 function sbMove(e){ const prev=document.getElementById("sbprev");
   let x=e.clientX+16, y=e.clientY+16;
   if(x+prev.offsetWidth>innerWidth-8) x=e.clientX-prev.offsetWidth-16;
