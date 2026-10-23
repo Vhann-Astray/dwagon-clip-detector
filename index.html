@@ -170,6 +170,12 @@
   #sbprev { position:fixed; z-index:50; pointer-events:none; display:none;
     width:304px; height:171px; border-radius:8px; border:1px solid var(--line);
     box-shadow:0 10px 30px -6px #000; background:#000 no-repeat; background-size:cover; }
+  .pager { display:flex; gap:10px; align-items:center; justify-content:center; padding:12px 0 4px; }
+  .pager button { background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    border-radius:8px; padding:7px 14px; font:inherit; font-size:13px; cursor:pointer; }
+  .pager button:hover:not(:disabled) { border-color:var(--accent); }
+  .pager button:disabled { opacity:.4; cursor:default; }
+  .pager .pind { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
   .empty { color:var(--muted); padding:48px; text-align:center; }
   footer { color:var(--muted); font-size:12px; padding:16px 18px; border-top:1px solid var(--line);
     max-width:2000px; margin:0 auto; }
@@ -189,6 +195,7 @@
       <button data-sort="score_desc">Best first</button>
       <button data-sort="score_asc">Lowest</button>
     </div>
+    <button id="vodOrder" class="dchip" title="Order of VODs in the list">Newest first</button>
     <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
     <input type="search" id="filter" placeholder="Filter VOD title…">
     <input type="search" id="kw" class="kw" placeholder="🔎 Search what she said…">
@@ -238,7 +245,8 @@
       <div class="t2" style="margin-top:8px"><span>Keys: <kbd>←</kbd> <kbd>→</kbd> navigate</span></div>
     </div>
   </div>
-  <div class="list-col"><div id="list"><div class="empty">Loading data…</div></div></div>
+  <div class="list-col"><div id="list"><div class="empty">Loading data…</div></div>
+    <div id="pager" class="pager" style="display:none"></div></div>
 </div>
 <footer id="foot"></footer>
 
@@ -250,8 +258,18 @@ let openVods=new Set();   // VOD dépliées (accordéon) — persisté entre les
 let scrollToVod=null, pendingSelect=null;   // post-render : recentrage / sélection différée
 let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
+let page=0;               // page courante (pagination des VOD)
+let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "oldest"
+const PAGE_SIZE=8;        // nb de VOD par page
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
+
+// Moments d'une VOD à afficher : aucun type coché = TOUS (pas de filtre = tout).
+function shownOf(v){
+  const ms=parseFloat(document.getElementById("minScore").value);
+  const base = active.size ? v.items.filter(it=>active.has(it.type)) : v.items;
+  return base.filter(it=>it.score>=ms);
+}
 
 function debounce(fn, ms){ let h; return function(){ clearTimeout(h); h=setTimeout(fn, ms); }; }
 
@@ -438,36 +456,43 @@ function renderFilters(){
     b.className="dchip"+(active.has(d.id)?" on":""); b.style.setProperty("--c",d.color);
     b.innerHTML=`<span class="dot"></span>${d.emoji||""} ${esc(d.label)}`;
     b.onclick=()=>{ active.has(d.id)?active.delete(d.id):active.add(d.id);
-      b.classList.toggle("on"); render(); }; box.appendChild(b); }); }
+      b.classList.toggle("on"); reRender(); }; box.appendChild(b); }); }
 
 function render(){
   const minScore=parseFloat(document.getElementById("minScore").value);
   const q=document.getElementById("filter").value.trim().toLowerCase();
   const kw=kwVal();
   const list=document.getElementById("list"); list.innerHTML=""; flat=[]; cur=-1;
-  let nV=0,nE=0,nS=0;
-  // En recherche : auto-déplier seulement si peu de VOD matchent (sinon on
-  // laisse replié → on ne construit pas des milliers de pastilles d'un coup).
-  const kwVodCount = kw ? DATA.vods.filter(v=>matchSegs(v.vod_id,kw).length).length : 0;
-  const autoKwExpand = kw && kwVodCount<=5;
 
-  DATA.vods.forEach(v=>{
-    if(focusVod && v.vod_id!==focusVod) return;   // verrou sur une seule VOD
-    if(q && !(v.title||"").toLowerCase().includes(q)) return;
-    const items=sortItems(v.items.filter(it=>active.has(it.type)&&it.score>=minScore));
-    // résultats de recherche (superposés aux détections)
+  // Ordre des VOD (DATA.vods est récent→ancien ; on inverse si "oldest").
+  const ordered=(vodOrder==="oldest")?DATA.vods.slice().reverse():DATA.vods;
+  // VOD visibles (toutes pages confondues) + totaux pour le résumé.
+  // Aucun type coché ET pas de recherche = catalogue : toutes les VOD.
+  let nE=0,nS=0;
+  const visible=ordered.filter(v=>{
+    if(focusVod && v.vod_id!==focusVod) return false;
+    if(q && !(v.title||"").toLowerCase().includes(q)) return false;
+    const shown=shownOf(v), sres=kw?matchSegs(v.vod_id,kw):[];
+    const ok = kw ? sres.length>0 : shown.length>0;
+    if(ok){ nE+=shown.length; nS+=sres.length; }
+    return ok;
+  });
+  const nV=visible.length;
+  const autoKwExpand = kw && nV<=5;   // auto-déplier si peu de VOD matchent
+  // Pagination.
+  const pages=Math.max(1,Math.ceil(nV/PAGE_SIZE));
+  if(page>=pages) page=pages-1; if(page<0) page=0;
+
+  visible.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).forEach(v=>{
+    const items=shownOf(v);                       // moments filtrés (corps + timeline)
     const sres = kw ? matchSegs(v.vod_id, kw) : [];
-    // visibilité : si recherche active → VOD avec match ; sinon → VOD avec détections.
-    if(kw){ if(!sres.length) return; } else { if(!items.length) return; }
-    nV++; nE+=items.length; nS+=sres.length;
-
     const g=document.createElement("div"); g.className="group"; g.dataset.vod=v.vod_id;
-    // dépliée si : filtre titre actif, recherche avec peu de matches, OU mémorisée.
     let openNow = q ? true : openVods.has(v.vod_id);
     if(autoKwExpand) openNow=true;
     if(openNow) g.classList.add("open");
 
-    const byType={}; items.forEach(it=>byType[it.type]=(byType[it.type]||0)+1);
+    // En-tête : compteurs COMPLETS (tous types) = vue d'ensemble permanente.
+    const byType={}; v.items.forEach(it=>byType[it.type]=(byType[it.type]||0)+1);
     let counts=DATA.detectors.filter(d=>byType[d.id]).map(d=>
       `<span class="cc" style="color:${d.color}">${d.emoji||""} ${byType[d.id]}</span>`).join("");
     if(kw) counts+=`<span class="cc" style="color:${SEARCH.color}">🔎 ${sres.length}</span>`;
@@ -481,7 +506,7 @@ function render(){
     const fb=document.createElement("button"); fb.className="gbtn"+(focusVod===v.vod_id?" on":"");
     fb.textContent="📌"; fb.title="Focus this VOD (filter everything to it)";
     fb.onclick=e=>{ e.stopPropagation(); focusVod=(focusVod===v.vod_id)?null:v.vod_id;
-      if(focusVod) openVods.add(v.vod_id); render(); };
+      if(focusVod) openVods.add(v.vod_id); reRender(); };
     const tb=document.createElement("button"); tb.className="gbtn"; tb.textContent="📄";
     tb.title="Open full transcript (jumps to the selected moment)";
     tb.onclick=e=>{ e.stopPropagation();
@@ -591,6 +616,7 @@ function render(){
     (focusVod?"📌 ":"")+`${nV} VOD${nV>1?"s":""} · ${nE} moments`+(kw?` · 🔎 ${nS}`:"");
   document.getElementById("counter").textContent="— / "+flat.length;
   document.getElementById("prevBtn").disabled=true; document.getElementById("nextBtn").disabled=flat.length===0;
+  renderPager(pages);
 
   // Post-rendu : sélection différée (tick d'une carte repliée) ou recentrage.
   if(pendingSelect){ const key=pendingSelect; pendingSelect=null;
@@ -601,15 +627,28 @@ function render(){
   syncToggleAll();
 }
 
+// Pagination : barre Préc / Page X/Y / Suiv (cachée s'il n'y a qu'une page).
+function renderPager(pages){
+  const el=document.getElementById("pager");
+  if(pages<=1){ el.innerHTML=""; el.style.display="none"; return; }
+  el.style.display="flex"; el.innerHTML="";
+  const prev=document.createElement("button"); prev.textContent="◀ Prev"; prev.disabled=page<=0;
+  prev.onclick=()=>{ if(page>0){ page--; render(); window.scrollTo({top:0,behavior:"smooth"}); } };
+  const ind=document.createElement("span"); ind.className="pind"; ind.textContent="Page "+(page+1)+" / "+pages;
+  const next=document.createElement("button"); next.textContent="Next ▶"; next.disabled=page>=pages-1;
+  next.onclick=()=>{ if(page<pages-1){ page++; render(); window.scrollTo({top:0,behavior:"smooth"}); } };
+  el.appendChild(prev); el.appendChild(ind); el.appendChild(next);
+}
+// Un changement de filtre/ordre repart page 1 (évite d'atterrir hors plage).
+function reRender(){ page=0; render(); }
+
 // Bouton Expand all / Collapse all : reflète l'état et bascule toutes les VOD.
 function visibleVodIds(){
   const q=document.getElementById("filter").value.trim().toLowerCase();
-  const minScore=parseFloat(document.getElementById("minScore").value);
   const kw=kwVal();
   return DATA.vods.filter(v=>(!focusVod||v.vod_id===focusVod) &&
     (!q||(v.title||"").toLowerCase().includes(q)) &&
-    (kw ? matchSegs(v.vod_id,kw).length>0
-        : v.items.some(it=>active.has(it.type)&&it.score>=minScore))).map(v=>v.vod_id);
+    (kw ? matchSegs(v.vod_id,kw).length>0 : shownOf(v).length>0)).map(v=>v.vod_id);
 }
 function syncToggleAll(){ const btn=document.getElementById("toggleAll"); if(!DATA) return;
   const vis=visibleVodIds(); const allOpen=vis.length>0 && vis.every(id=>openVods.has(id));
@@ -623,9 +662,12 @@ document.getElementById("prevBtn").onclick=()=>select(cur-1);
 document.getElementById("nextBtn").onclick=()=> select(cur<0?0:cur+1);
 document.getElementById("nowCopy").onclick=function(){ if(cur>=0) copyText(flat[cur].url,this); };
 document.getElementById("minScore").addEventListener("input",e=>{
-  document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2); render(); });
-document.getElementById("filter").addEventListener("input",render);
-document.getElementById("kw").addEventListener("input",debounce(render,160));
+  document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2); reRender(); });
+document.getElementById("filter").addEventListener("input",reRender);
+document.getElementById("kw").addEventListener("input",debounce(reRender,160));
+document.getElementById("vodOrder").onclick=function(){
+  vodOrder=(vodOrder==="newest")?"oldest":"newest";
+  this.textContent=(vodOrder==="newest")?"Newest first":"Oldest first"; reRender(); };
 // Modale transcript : ouverture depuis la carte lecteur, fermeture, recherche interne.
 document.getElementById("nowTranscript").onclick=()=>{
   if(transcriptOpen()){ closeTranscript(); return; }   // toggle : ferme si ouvert
@@ -640,7 +682,7 @@ window.addEventListener("resize",()=>{ if(transcriptOpen()) positionTranscript()
 document.querySelectorAll("#sortCtl button").forEach(b=>b.addEventListener("click",()=>{
   sortMode=b.dataset.sort;
   document.querySelectorAll("#sortCtl button").forEach(x=>x.classList.remove("active"));
-  b.classList.add("active"); render(); }));
+  b.classList.add("active"); reRender(); }));
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){ if(transcriptOpen()) closeTranscript(); return; }
   if(transcriptOpen()) return;   // modale ouverte : pas de navigation ←/→
@@ -651,7 +693,7 @@ document.addEventListener("keydown",e=>{
 if(location.protocol==="file:") document.getElementById("fileNote").style.display="block";
 
 fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
-  DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; active.add(x.id); });
+  DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; });   // filtres OFF par défaut (catalogue)
   DET["search"]=SEARCH;
   if(d.vods&&d.vods.length) openVods.add(d.vods[0].vod_id);  // 1re VOD dépliée
   document.getElementById("foot").textContent=
