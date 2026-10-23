@@ -257,6 +257,7 @@ let flat=[], cur=-1;   // flat = moments visibles dans l'ordre d'affichage
 let player=null, playerReady=false, curVid=null, pending=null;
 let openVods=new Set();   // VOD dépliées (accordéon) — persisté entre les rendus
 let scrollToVod=null, pendingSelect=null;   // post-render : recentrage / sélection différée
+let selKey=null;          // clé du moment sélectionné — réappliquée après chaque re-rendu
 let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
 let page=0;               // page courante (pagination des VOD)
@@ -429,6 +430,7 @@ function select(i){
   if(i<0||i>=flat.length) return;
   if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
   cur=i; const m=flat[cur]; m.el.classList.add("active");
+  selKey=m.vod+"@"+m.t+"@"+m.type;   // mémorise la sélection (survit aux re-rendus de fitPage)
   // déplie la VOD du moment (si on arrive depuis la timeline d'une carte repliée)
   if(m.group && !m.group.classList.contains("open")){
     m.group.classList.add("open"); openVods.add(m.vod); syncToggleAll(); }
@@ -451,6 +453,16 @@ function select(i){
     if(tVod===m.vod) scrollTranscriptTo(m.t);
     else openTranscript(m.vod, m.t);   // autre VOD → recharge le transcript
   }
+}
+
+// Restaure l'état de sélection (surlignage + compteur + Prev/Next) après un
+// re-rendu, SANS relancer la lecture ni le recentrage. Utilisé quand fitPage()
+// reconstruit la liste alors qu'un moment était déjà sélectionné.
+function reselectSoft(i){
+  cur=i; flat[cur].el.classList.add("active");
+  document.getElementById("counter").textContent=(cur+1)+" / "+flat.length;
+  document.getElementById("prevBtn").disabled=cur<=0;
+  document.getElementById("nextBtn").disabled=cur>=flat.length-1;
 }
 
 function renderFilters(){
@@ -631,8 +643,13 @@ function render(){
   if(pendingSelect){ const key=pendingSelect; pendingSelect=null;
     const i=flat.findIndex(m=>(m.vod+"@"+m.t+"@"+m.type)===key);
     if(i>=0) select(i);
-  } else if(scrollToVod){ const el=list.querySelector('.group[data-vod="'+scrollToVod+'"] .ghead');
-    scrollToVod=null; if(el) el.scrollIntoView({block:"nearest"}); }
+  } else {
+    // Réapplique la sélection si un re-rendu (ex. fitPage) vient d'effacer cur.
+    if(cur<0 && selKey){ const i=flat.findIndex(m=>(m.vod+"@"+m.t+"@"+m.type)===selKey);
+      if(i>=0) reselectSoft(i); }
+    if(scrollToVod){ const el=list.querySelector('.group[data-vod="'+scrollToVod+'"] .ghead');
+      scrollToVod=null; if(el) el.scrollIntoView({block:"nearest"}); }
+  }
   syncToggleAll();
   fitPage();   // ajuste le nb de VOD/page à la hauteur du lecteur
 }
