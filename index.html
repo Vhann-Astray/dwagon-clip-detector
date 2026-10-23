@@ -659,25 +659,24 @@ function fitPage(){
   if(fitting || window.innerWidth<=980 || !DATA) return;   // mono-colonne : empilé
   const pc=document.querySelector(".player-col"), list=document.getElementById("list");
   if(!pc || !list) return;
-  const pager=document.getElementById("pager");
+  const pager=document.getElementById("pager"), footer=document.querySelector("footer");
   for(let i=0;i<8;i++){
     const probe=list.querySelector(".group:not(.open)") || list.querySelector(".group");
     if(!probe) return;
-    const C=probe.getBoundingClientRect().height + parseFloat(getComputedStyle(probe).marginBottom||"0");
-    if(C<=0) return;                                 // pas de layout (ex. jsdom) → on garde pageSize
+    const pr=probe.getBoundingClientRect();
+    if(pr.height<=0) return;                          // pas de layout (ex. jsdom) → on garde pageSize
+    const C=pr.height + parseFloat(getComputedStyle(probe).marginBottom||"0");
     const rendered=list.querySelectorAll(".group").length;
     const last=list.querySelector(".group:last-child");
     const lastBottom=last?last.getBoundingClientRect().bottom:pc.getBoundingClientRect().top;
     const pagerH=(pager && pager.style.display!=="none")?pager.getBoundingClientRect().height:0;
-    // Cible : bas du lecteur, mais jamais au-delà du viewport (réserve le
-    // débordement toléré de 0.65 carte + la barre de pages → zéro scroll).
-    const safe=window.innerHeight - pagerH - 8 - C*0.65;
-    const target=Math.min(pc.getBoundingClientRect().bottom, safe);
-    const room=target - lastBottom;
+    const footerH=footer?footer.getBoundingClientRect().height:0;
+    // Limite = bas du viewport − barre de pages − footer → la liste remplit
+    // jusque-là sans jamais faire défiler (footer toujours visible).
+    const limit=window.innerHeight - pagerH - footerH - 4;
     let next=pageSize;
-    // seuils ajout/retrait dont la somme = 1 carte → convergence sans oscillation
-    if(room>=C*0.35 && rendered>=pageSize) next=pageSize+Math.max(1,Math.floor(room/C));
-    else if(room<-C*0.65) next=pageSize-1;
+    if(lastBottom+C<=limit && rendered>=pageSize) next=pageSize+Math.max(1,Math.floor((limit-lastBottom)/C));
+    else if(lastBottom>limit) next=pageSize-1;        // sécurité : ça dépasse → on retire
     next=Math.max(1,next);
     if(next===pageSize) break;
     fitting=true; pageSize=next; render(); fitting=false;
