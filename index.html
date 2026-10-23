@@ -76,6 +76,9 @@
   .ghead { padding:11px 14px; display:flex; gap:12px; align-items:center; background:var(--panel2);
     cursor:pointer; user-select:none; }
   .ghead:hover { background:#232834; }
+  .ghead.nocollapse { cursor:default; }
+  .ghead.nocollapse:hover { background:var(--panel2); }
+  .chev.x { visibility:hidden; }
   .group.open .ghead { position:sticky; top:51px; z-index:6; border-bottom:1px solid var(--line);
     box-shadow:0 6px 14px -8px #000; }
   @media (max-width:980px){ .group.open .ghead { position:static; } }
@@ -264,11 +267,12 @@ const PAGE_SIZE=7;        // nb de VOD par page
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
 
-// Moments d'une VOD à afficher : aucun type coché = TOUS (pas de filtre = tout).
+// Moments d'une VOD à afficher : filtres opt-in → aucun type coché = AUCUN
+// moment (ni pastille ni tick). Les indicateurs n'apparaissent qu'à l'activation.
 function shownOf(v){
+  if(!active.size) return [];
   const ms=parseFloat(document.getElementById("minScore").value);
-  const base = active.size ? v.items.filter(it=>active.has(it.type)) : v.items;
-  return base.filter(it=>it.score>=ms);
+  return v.items.filter(it=>active.has(it.type) && it.score>=ms);
 }
 
 function debounce(fn, ms){ let h; return function(){ clearTimeout(h); h=setTimeout(fn, ms); }; }
@@ -468,12 +472,14 @@ function render(){
   const ordered=(vodOrder==="oldest")?DATA.vods.slice().reverse():DATA.vods;
   // VOD visibles (toutes pages confondues) + totaux pour le résumé.
   // Aucun type coché ET pas de recherche = catalogue : toutes les VOD.
+  const noFilter = !active.size && !kw;   // catalogue : aucun filtre actif
   let nE=0,nS=0;
   const visible=ordered.filter(v=>{
     if(focusVod && v.vod_id!==focusVod) return false;
     if(q && !(v.title||"").toLowerCase().includes(q)) return false;
+    if(noFilter){ nE+=v.items.length; return true; }   // toutes les VOD (index)
     const shown=shownOf(v), sres=kw?matchSegs(v.vod_id,kw):[];
-    const ok = kw ? sres.length>0 : shown.length>0;
+    const ok = shown.length>0 || sres.length>0;
     if(ok){ nE+=shown.length; nS+=sres.length; }
     return ok;
   });
@@ -486,9 +492,10 @@ function render(){
   visible.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).forEach(v=>{
     const items=shownOf(v);                       // moments filtrés (corps + timeline)
     const sres = kw ? matchSegs(v.vod_id, kw) : [];
+    const hasBody = items.length>0 || sres.length>0;   // qqch à déplier/afficher
     const g=document.createElement("div"); g.className="group"; g.dataset.vod=v.vod_id;
-    let openNow = q ? true : openVods.has(v.vod_id);
-    if(autoKwExpand) openNow=true;
+    let openNow = hasBody && (q ? true : openVods.has(v.vod_id));
+    if(autoKwExpand && hasBody) openNow=true;
     if(openNow) g.classList.add("open");
 
     // En-tête : compteurs COMPLETS (tous types) = vue d'ensemble permanente.
@@ -498,8 +505,8 @@ function render(){
     if(kw) counts+=`<span class="cc" style="color:${SEARCH.color}">🔎 ${sres.length}</span>`;
     const meta=[v.date,fmtDur(v.duration)].filter(Boolean).join("  ·  ");
     const thumb=v.thumbnail?`<img class="thumb" src="${v.thumbnail}" loading="lazy" alt="">`:"";
-    const head=document.createElement("div"); head.className="ghead";
-    head.innerHTML=`<span class="chev">▶</span>${thumb}`+
+    const head=document.createElement("div"); head.className="ghead"+(hasBody?"":" nocollapse");
+    head.innerHTML=`${hasBody?'<span class="chev">▶</span>':'<span class="chev x"></span>'}${thumb}`+
       `<div class="ginfo"><div class="gtitle">${esc(v.title)}</div>`+
       `<div class="gmeta">${esc(meta)}</div></div><div class="gcounts">${counts}</div>`;
     const gacts=document.createElement("div"); gacts.className="gacts";
@@ -514,14 +521,16 @@ function render(){
       const ft=(cur>=0&&flat[cur]&&flat[cur].vod===v.vod_id)?flat[cur].t:null;
       openTranscript(v.vod_id, ft); };
     gacts.appendChild(fb); gacts.appendChild(tb); head.appendChild(gacts);
-    head.onclick=()=>{ const willOpen=!g.classList.contains("open");
+    if(hasBody) head.onclick=()=>{ const willOpen=!g.classList.contains("open");
       willOpen?openVods.add(v.vod_id):openVods.delete(v.vod_id);
       scrollToVod=willOpen?v.vod_id:null; render(); };   // re-render : construit/retire le body
     g.appendChild(head);
 
-    // timeline (ordre chronologique) — détections + ticks de recherche superposés
+    // timeline (ordre chronologique) — seulement s'il y a des indicateurs à montrer.
+    let tl=null;
+    if(hasBody){
     const dur=v.duration||Math.max(...items.map(i=>i.t),...sres.map(s=>s.t),1);
-    const tl=document.createElement("div"); tl.className="timeline";
+    tl=document.createElement("div"); tl.className="timeline";
     const chrono=items.slice().sort((a,b)=>a.t-b.t);
     chrono.forEach(it=>{ const d=DET[it.type]||{color:"#888"};
       const tk=document.createElement("div"); tk.className="tick";
@@ -542,6 +551,7 @@ function render(){
         tk.addEventListener("mousemove",sbMove); tk.addEventListener("mouseleave",sbHide); }
       tl.appendChild(tk); });
     g.appendChild(tl);
+    }  // fin if(hasBody) — timeline
 
     // Le body (pastilles) n'est construit QUE si la carte est ouverte →
     // les cartes repliées ne coûtent qu'un en-tête + une timeline.
@@ -602,7 +612,7 @@ function render(){
     // Relie chaque tick à son index flat. Si la carte est repliée (pas de flat),
     // un clic sur un tick déplie la carte puis sélectionne le moment.
     const keyToIdx={}; flat.forEach((m,i)=>keyToIdx[m.vod+"@"+m.t+"@"+m.type]=i);
-    tl.querySelectorAll(".tick").forEach(tk=>{ const i=keyToIdx[tk.dataset.key];
+    if(tl) tl.querySelectorAll(".tick").forEach(tk=>{ const i=keyToIdx[tk.dataset.key];
       if(i!=null) tk.onclick=()=>select(i);
       else tk.onclick=()=>{ openVods.add(v.vod_id); scrollToVod=v.vod_id;
         pendingSelect=tk.dataset.key; render(); }; });
@@ -644,6 +654,7 @@ function reRender(){ page=0; render(); }
 
 // Bouton Expand all / Collapse all : reflète l'état et bascule toutes les VOD.
 function visibleVodIds(){
+  if(!active.size && !kwVal()) return [];   // catalogue : rien à déplier
   const q=document.getElementById("filter").value.trim().toLowerCase();
   const kw=kwVal();
   return DATA.vods.filter(v=>(!focusVod||v.vod_id===focusVod) &&
