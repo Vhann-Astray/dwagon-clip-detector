@@ -79,9 +79,7 @@
   .ghead.nocollapse { cursor:default; }
   .ghead.nocollapse:hover { background:var(--panel2); }
   .chev.x { visibility:hidden; }
-  .group.open .ghead { position:sticky; top:51px; z-index:6; border-bottom:1px solid var(--line);
-    box-shadow:0 6px 14px -8px #000; }
-  @media (max-width:980px){ .group.open .ghead { position:static; } }
+  .group.open .ghead { border-bottom:1px solid var(--line); }
   .chev { flex:none; color:var(--muted); font-size:12px; width:14px; text-align:center;
     transition:transform .15s; }
   .group.open .chev { transform:rotate(90deg); }
