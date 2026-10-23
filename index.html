@@ -261,7 +261,8 @@ let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
 let page=0;               // page courante (pagination des VOD)
 let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "oldest"
-const PAGE_SIZE=7;        // nb de VOD par page
+let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
+let fitting=false;        // garde-fou anti-récursion du calcul de hauteur
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
 
@@ -483,11 +484,11 @@ function render(){
   });
   const nV=visible.length;
   const autoKwExpand = kw && nV<=5;   // auto-déplier si peu de VOD matchent
-  // Pagination.
-  const pages=Math.max(1,Math.ceil(nV/PAGE_SIZE));
+  // Pagination (pageSize ajusté à la hauteur après le rendu, voir fitPage).
+  const pages=Math.max(1,Math.ceil(nV/pageSize));
   if(page>=pages) page=pages-1; if(page<0) page=0;
 
-  visible.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE).forEach(v=>{
+  visible.slice(page*pageSize,(page+1)*pageSize).forEach(v=>{
     const items=shownOf(v);                       // moments filtrés (corps + timeline)
     const sres = kw ? matchSegs(v.vod_id, kw) : [];
     const hasBody = items.length>0 || sres.length>0;   // qqch à déplier/afficher
@@ -633,6 +634,7 @@ function render(){
   } else if(scrollToVod){ const el=list.querySelector('.group[data-vod="'+scrollToVod+'"] .ghead');
     scrollToVod=null; if(el) el.scrollIntoView({block:"nearest"}); }
   syncToggleAll();
+  fitPage();   // ajuste le nb de VOD/page à la hauteur du lecteur
 }
 
 // Pagination : barre Préc / Page X/Y / Suiv (cachée s'il n'y a qu'une page).
@@ -649,6 +651,21 @@ function renderPager(pages){
 }
 // Un changement de filtre/ordre repart page 1 (évite d'atterrir hors plage).
 function reRender(){ page=0; render(); }
+
+// Ajuste pageSize pour que la liste remplisse la hauteur du lecteur (pas de scroll).
+// Mesuré après rendu : hauteur du lecteur / hauteur d'une carte repliée.
+function fitPage(){
+  if(fitting || window.innerWidth<=980) return;   // mono-colonne : empilé, pas de fit
+  const pc=document.querySelector(".player-col"), list=document.getElementById("list");
+  if(!pc || !list) return;
+  const card=list.querySelector(".group:not(.open)") || list.querySelector(".group");
+  if(!card) return;
+  const C=card.getBoundingClientRect().height + parseFloat(getComputedStyle(card).marginBottom||"0");
+  const H=pc.getBoundingClientRect().height;
+  if(C<=0 || H<=0) return;                          // pas de layout (ex. jsdom) → on garde pageSize
+  const fit=Math.max(1, Math.floor((H-48)/C));      // -48 : marge pour la barre de pages
+  if(fit!==pageSize){ fitting=true; pageSize=fit; render(); fitting=false; }
+}
 
 // Bouton Expand all / Collapse all : reflète l'état et bascule toutes les VOD.
 function visibleVodIds(){
@@ -687,7 +704,9 @@ document.getElementById("tsearch").addEventListener("input",debounce(()=>{
   if(tVod&&transcriptsReady&&TRANSCRIPTS[tVod]){
     const val=document.getElementById("tsearch").value.trim();
     buildTranscriptLines(tVod, val); buildMatchRail(val); } },160));
-window.addEventListener("resize",()=>{ if(transcriptOpen()) positionTranscript(); });
+window.addEventListener("resize",debounce(()=>{
+  if(transcriptOpen()) positionTranscript(); render();   // re-fit la hauteur
+},150));
 document.querySelectorAll("#sortCtl button").forEach(b=>b.addEventListener("click",()=>{
   sortMode=b.dataset.sort;
   document.querySelectorAll("#sortCtl button").forEach(x=>x.classList.remove("active"));
@@ -704,7 +723,6 @@ if(location.protocol==="file:") document.getElementById("fileNote").style.displa
 fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; });   // filtres OFF par défaut (catalogue)
   DET["search"]=SEARCH;
-  if(d.vods&&d.vods.length) openVods.add(d.vods[0].vod_id);  // 1re VOD dépliée
   document.getElementById("foot").textContent=
     "🐲💛 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · search what she said · ←/→ to step.";
   renderFilters(); render();
