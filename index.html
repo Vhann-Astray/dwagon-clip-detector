@@ -545,22 +545,27 @@ function render(){
       return chip;
     }
 
-    if(items.length){
+    // Liste unifiée : détections + résultats de recherche, triés selon le mode
+    // du haut. En tri par score, les résultats (sans score) passent à la fin.
+    const merged=items.map(it=>({t:it.t,hms:it.hms,score:it.score,type:it.type,
+      url:it.url,text:it.text||"",search:false}));
+    if(kw) sres.forEach(s=>{ const tt=Math.max(0,Math.round(s.t-2));
+      merged.push({t:s.t,hms:hmsT(s.t),score:null,type:"search",
+        url:"https://youtu.be/"+v.vod_id+"?t="+tt,text:s.x,kw:kw,search:true}); });
+    merged.sort((a,b)=>{
+      if(sortMode==="chrono") return a.t-b.t;
+      const an=a.score==null, bn=b.score==null;
+      if(an!==bn) return an?1:-1;          // sans score (recherche) → à la fin
+      if(an&&bn) return a.t-b.t;
+      return sortMode==="score_desc" ? b.score-a.score : a.score-b.score;
+    });
+    if(merged.length){
       const chips=document.createElement("div"); chips.className="chips";
-      items.forEach(it=>{ const d=DET[it.type]||{color:"#888",emoji:"",label:it.type};
-        chips.appendChild(makeChip({t:it.t,hms:it.hms,score:it.score,type:it.type,
-          emoji:d.emoji,color:d.color,url:it.url,text:it.text||""})); });
+      merged.forEach(o=>{ const d=o.search?SEARCH:(DET[o.type]||{color:"#888",emoji:"",label:o.type});
+        chips.appendChild(makeChip({t:o.t,hms:o.hms,score:o.score,type:o.type,
+          emoji:d.emoji,color:d.color,url:o.url,text:o.text,
+          html:o.search?hl(o.text,o.kw):null,search:o.search})); });
       body.appendChild(chips);
-    }
-    if(kw && sres.length){
-      const sh=document.createElement("div"); sh.className="shead";
-      sh.innerHTML=`🔎 ${sres.length} result${sres.length>1?"s":""} for “${esc(kw)}”`;
-      const schips=document.createElement("div"); schips.className="chips srch";
-      sres.forEach(s=>{ const tt=Math.max(0,Math.round(s.t-2));
-        schips.appendChild(makeChip({t:s.t,hms:hmsT(s.t),score:null,type:"search",
-          emoji:SEARCH.emoji,color:SEARCH.color,text:s.x,html:hl(s.x,kw),
-          url:"https://youtu.be/"+v.vod_id+"?t="+tt,search:true})); });
-      body.appendChild(sh); body.appendChild(schips);
     }
     g.appendChild(body);
     }  // fin if(openNow)
