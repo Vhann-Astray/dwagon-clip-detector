@@ -67,6 +67,7 @@
     background:var(--panel2); border:1px solid var(--line); color:var(--text);
     border-radius:8px; padding:7px; font:inherit; font-size:13px; cursor:pointer; }
   .nowacts .ok { color:#7CFC98; border-color:#7CFC98; }
+  #nowTranscript.on { color:#0b0d12; background:var(--accent); border-color:var(--accent); font-weight:650; }
 
   /* ---- List column ---- */
   .list-col { min-width:0; }
@@ -331,12 +332,14 @@ function openTranscript(vodId, focusT){
   else if(!segs||!segs.length) body.innerHTML='<div class="empty">No transcript available for this VOD.</div>';
   else buildTranscriptLines(vodId, kwVal());
   document.getElementById("tmodal").style.display="block";
+  document.getElementById("nowTranscript").classList.add("on");
   positionTranscript();
   buildMatchRail(ready?kwVal():"");
   // rAF : on laisse le panneau se poser (layout) avant de calculer le scroll.
   if(focusT!=null && ready) requestAnimationFrame(()=>scrollTranscriptTo(focusT));
 }
-function closeTranscript(){ document.getElementById("tmodal").style.display="none"; tVod=null; }
+function closeTranscript(){ document.getElementById("tmodal").style.display="none"; tVod=null;
+  document.getElementById("nowTranscript").classList.remove("on"); }
 function transcriptOpen(){ return document.getElementById("tmodal").style.display!=="none"; }
 
 // --- Aperçu storyboard : calcule la tuile de la sprite à l'instant t ---
@@ -625,6 +628,7 @@ document.getElementById("filter").addEventListener("input",render);
 document.getElementById("kw").addEventListener("input",debounce(render,160));
 // Modale transcript : ouverture depuis la carte lecteur, fermeture, recherche interne.
 document.getElementById("nowTranscript").onclick=()=>{
+  if(transcriptOpen()){ closeTranscript(); return; }   // toggle : ferme si ouvert
   const vid=curVid||(cur>=0?flat[cur].vod:null);
   openTranscript(vid, cur>=0?flat[cur].t:null); };
 document.getElementById("tmClose").onclick=closeTranscript;
