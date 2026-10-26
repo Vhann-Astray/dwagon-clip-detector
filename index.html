@@ -384,7 +384,9 @@ function sbShow(sb, t, e){
   prev.style.display="block";          // visible d'abord → clientWidth correct
   const s=sbStyle(sb,t);
   if(!s){ prev.style.display="none"; return; }
-  prev.style.backgroundImage="url('"+s.url+"')";
+  // Échappe les caractères qui pourraient sortir du url('…') CSS (défense en profondeur).
+  const safeUrl=s.url.replace(/[\\'"\r\n]/g,c=>"\\"+c);
+  prev.style.backgroundImage="url('"+safeUrl+"')";
   prev.style.backgroundSize=s.size; prev.style.backgroundPosition=s.pos;
   sbMove(e); }
 function sbMove(e){ const prev=document.getElementById("sbprev");
@@ -515,7 +517,7 @@ function render(){
       `<span class="cc" style="color:${d.color}">${d.emoji||""} ${byType[d.id]}</span>`).join("");
     if(kw) counts+=`<span class="cc" style="color:${SEARCH.color}">🔎 ${sres.length}</span>`;
     const meta=[v.date,fmtDur(v.duration)].filter(Boolean).join("  ·  ");
-    const thumb=v.thumbnail?`<img class="thumb" src="${v.thumbnail}" loading="lazy" alt="">`:"";
+    const thumb=v.thumbnail?`<img class="thumb" src="${esc(v.thumbnail)}" loading="lazy" alt="">`:"";
     const head=document.createElement("div"); head.className="ghead"+(hasBody?"":" nocollapse");
     head.innerHTML=`${hasBody?'<span class="chev">▶</span>':'<span class="chev x"></span>'}${thumb}`+
       `<div class="ginfo"><div class="gtitle">${esc(v.title)}</div>`+
