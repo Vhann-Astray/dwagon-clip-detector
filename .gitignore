@@ -1,0 +1,23 @@
+# Filet de sécurité : ne JAMAIS publier d'identifiants ou de données locales
+# dans ce dépôt public. Les fichiers du site (index.html, data.json,
+# transcripts.json, README.md) restent suivis explicitement.
+
+# Identifiants / secrets
+cookies*.txt
+*.cookies
+.env
+*.env
+*.pem
+*.key
+
+# Artefacts Python / cache du pipeline
+cache/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Divers OS / éditeurs
+.DS_Store
+Thumbs.db
+*.swp
