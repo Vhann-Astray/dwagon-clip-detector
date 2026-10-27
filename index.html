@@ -105,6 +105,8 @@
   /* recherche plein-texte */
   input[type=search].kw { min-width:210px; border-color:#1e5a66; }
   input[type=search].kw:focus { outline:1px solid #22d3ee; }
+  input[type=search].kw.bad { border-color:#e05260; }
+  input[type=search].kw.bad:focus { outline-color:#e05260; }
   mark { background:#22d3ee; color:#06222a; border-radius:3px; padding:0 2px; font-weight:600; }
   .tick.tsearch { width:3px; opacity:.95; z-index:2; box-shadow:0 0 4px #22d3ee; }
   /* boutons d'en-tête de VOD (focus / transcript) */
@@ -139,6 +141,7 @@
     border-radius:7px; cursor:pointer; padding:5px 10px; font:inherit; font-size:12px; }
   .mnavbtn:hover:not(:disabled) { border-color:var(--accent); }
   .mnavbtn:disabled { opacity:.4; cursor:default; }
+  .mnavbtn.on { color:#06222a; background:#22d3ee; border-color:#22d3ee; font-weight:600; }
   .mcount { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums;
     min-width:42px; text-align:center; }
   .tline { display:flex; gap:10px; width:100%; text-align:left; background:none; border:0;
@@ -205,6 +208,7 @@
       <span class="mtitle" id="tmTitle">Transcript</span>
       <input type="search" id="tsearch" class="kw" placeholder="🔎 Find in transcript (regex)…" title="Regex supported — e.g. Para\b matches ‘Para’ but not ‘Paradox’">
       <span class="mnav">
+        <button id="tmWord" class="mnavbtn" title="Whole word — match the term only as a full word (Para ≠ Paradox)">Whole word</button>
         <button id="tmPrev" class="mnavbtn" title="Previous match (Shift+Enter)" disabled>Prev</button>
         <button id="tmNext" class="mnavbtn" title="Next match (Enter)" disabled>Next</button>
         <span id="tmCount" class="mcount"></span>
@@ -256,6 +260,7 @@ const TLH=62;             // hauteur de la barre (= hauteur de l'en-tête)
 let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
 let tMatches=[], tMatchIdx=-1;   // occurrences du mot cherché dans le transcript + index courant
+let tWholeWord=false;            // recherche transcript : mot entier (\b…\b)
 let page=0;               // page courante (pagination des VOD)
 let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "oldest"
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
@@ -282,15 +287,18 @@ function hmsT(s){ s=Math.round(s); const h=Math.floor(s/3600),m=Math.floor(s%360
 // casse, globale). Ex. "Para\b" trouve "Para" mais pas "Paradox". Un motif
 // invalide retombe sur une recherche littérale échappée (comportement « mot »).
 function reEscape(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
-function makeRe(kw){ if(!kw) return null;
-  try{ return new RegExp(kw,"gi"); }
-  catch(e){ return new RegExp(reEscape(kw),"gi"); } }
-function matchSegs(vid, kw){ const arr=TRANSCRIPTS[vid]; if(!arr) return [];
-  const re=makeRe(kw); if(!re) return []; const out=[];
+function reWrap(kw, whole){ return whole ? "\\b(?:"+kw+")\\b" : kw; }
+function reValid(kw, whole){ if(!kw) return true;
+  try{ new RegExp(reWrap(kw,whole)); return true; }catch(e){ return false; } }
+function makeRe(kw, whole){ if(!kw) return null;
+  try{ return new RegExp(reWrap(kw,whole),"gi"); }
+  catch(e){ return new RegExp(reWrap(reEscape(kw),whole),"gi"); } }
+function matchSegs(vid, kw, whole){ const arr=TRANSCRIPTS[vid]; if(!arr) return [];
+  const re=makeRe(kw,whole); if(!re) return []; const out=[];
   for(let i=0;i<arr.length;i++){ re.lastIndex=0; if(re.test(arr[i][1])){
     out.push({t:arr[i][0], x:arr[i][1]}); if(out.length>=60) break; } }
   return out; }
-function hl(raw, kw){ const re=makeRe(kw); if(!re) return esc(raw);
+function hl(raw, kw, whole){ const re=makeRe(kw,whole); if(!re) return esc(raw);
   let out="", i=0, m; re.lastIndex=0;
   while((m=re.exec(raw))!==null){
     if(m[0].length===0){ re.lastIndex++; continue; }   // évite une boucle infinie
@@ -303,7 +311,7 @@ function buildTranscriptLines(vodId, kw){
   const segs=TRANSCRIPTS[vodId]||[], body=document.getElementById("tmBody");
   body.innerHTML=""; const frag=document.createDocumentFragment();
   segs.forEach(([t,x])=>{ const b=document.createElement("button"); b.className="tline"; b.dataset.t=t;
-    b.innerHTML=`<span class="tt">${hmsT(t)}</span><span class="tx">${kw?hl(x,kw):esc(x)}</span>`;
+    b.innerHTML=`<span class="tt">${hmsT(t)}</span><span class="tx">${kw?hl(x,kw,tWholeWord):esc(x)}</span>`;
     b.onclick=()=>{ playAt(vodId, Math.max(0,t-1));
       body.querySelectorAll(".tline.cur").forEach(e=>e.classList.remove("cur")); b.classList.add("cur"); };
     frag.appendChild(b); });
@@ -373,7 +381,10 @@ function openTranscript(vodId, focusT){
   const v=DATA.vods.find(x=>x.vod_id===vodId);
   tVod=vodId;
   document.getElementById("tmTitle").textContent=v?v.title:vodId;
-  document.getElementById("tsearch").value=kwVal();   // pré-remplit le mot cherché
+  const ts=document.getElementById("tsearch");
+  ts.value=kwVal();   // pré-remplit le mot cherché
+  ts.classList.toggle("bad", !!kwVal() && !reValid(kwVal(), tWholeWord));
+  document.getElementById("tmWord").classList.toggle("on", tWholeWord);
   const body=document.getElementById("tmBody"), segs=TRANSCRIPTS[vodId];
   const ready = transcriptsReady && segs && segs.length;
   if(!transcriptsReady) body.innerHTML='<div class="empty">Transcript still loading… try again in a second.</div>';
@@ -779,13 +790,20 @@ document.getElementById("nowTranscript").onclick=()=>{
   const vid=curVid||playVod||(cur>=0?flat[cur].vod:null);
   openTranscript(vid, playVod===vid?playT:null); };
 document.getElementById("tmClose").onclick=closeTranscript;
-document.getElementById("tsearch").addEventListener("input",debounce(()=>{
-  if(tVod&&transcriptsReady&&TRANSCRIPTS[tVod]){
-    const val=document.getElementById("tsearch").value.trim();
-    buildTranscriptLines(tVod, val); buildMatchRail(val); } },160));
+// Relance la recherche transcript : surligne, (ré)indexe, signale une regex invalide.
+function runTranscriptSearch(){
+  const el=document.getElementById("tsearch");
+  if(!(tVod&&transcriptsReady&&TRANSCRIPTS[tVod])){ el.classList.remove("bad"); return; }
+  const val=el.value.trim();
+  el.classList.toggle("bad", !!val && !reValid(val, tWholeWord));
+  buildTranscriptLines(tVod, val); buildMatchRail(val);
+}
+document.getElementById("tsearch").addEventListener("input",debounce(runTranscriptSearch,160));
 // Entrée = occurrence suivante (Maj+Entrée = précédente), en boucle.
 document.getElementById("tsearch").addEventListener("keydown",e=>{
   if(e.key==="Enter"){ e.preventDefault(); gotoMatch(e.shiftKey?-1:1); } });
+document.getElementById("tmWord").onclick=function(){
+  tWholeWord=!tWholeWord; this.classList.toggle("on",tWholeWord); runTranscriptSearch(); };
 document.getElementById("tmPrev").onclick=()=>gotoMatch(-1);
 document.getElementById("tmNext").onclick=()=>gotoMatch(1);
 window.addEventListener("resize",debounce(()=>{
