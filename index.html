@@ -515,7 +515,11 @@ function seekTimeline(v, t){
   document.getElementById("counter").textContent="— / "+flat.length;
   document.getElementById("prevBtn").disabled=true;
   document.getElementById("nextBtn").disabled=flat.length===0;
-  if(transcriptOpen() && tVod===v.vod_id) scrollTranscriptTo(t);
+  // Synchronise la modale transcript ouverte (recharge si c'est une autre VOD).
+  if(transcriptOpen()){
+    if(tVod===v.vod_id) scrollTranscriptTo(t);
+    else openTranscript(v.vod_id, t);
+  }
 }
 
 // Restaure l'état de sélection (surlignage + compteur + Prev/Next) après un
