@@ -203,7 +203,7 @@
   <div class="mbox">
     <div class="mhead">
       <span class="mtitle" id="tmTitle">Transcript</span>
-      <input type="search" id="tsearch" class="kw" placeholder="🔎 Find in transcript…">
+      <input type="search" id="tsearch" class="kw" placeholder="🔎 Find in transcript (regex)…" title="Regex supported — e.g. Para\b matches ‘Para’ but not ‘Paradox’">
       <span class="mnav">
         <button id="tmPrev" class="mnavbtn" title="Previous match (Shift+Enter)" disabled>Prev</button>
         <button id="tmNext" class="mnavbtn" title="Next match (Enter)" disabled>Next</button>
@@ -278,15 +278,24 @@ function debounce(fn, ms){ let h; return function(){ clearTimeout(h); h=setTimeo
 function kwVal(){ return document.getElementById("kw").value.trim(); }
 function hmsT(s){ s=Math.round(s); const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
   return h+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"); }
+// Recherche : le motif est interprété comme une regex simple (insensible à la
+// casse, globale). Ex. "Para\b" trouve "Para" mais pas "Paradox". Un motif
+// invalide retombe sur une recherche littérale échappée (comportement « mot »).
+function reEscape(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); }
+function makeRe(kw){ if(!kw) return null;
+  try{ return new RegExp(kw,"gi"); }
+  catch(e){ return new RegExp(reEscape(kw),"gi"); } }
 function matchSegs(vid, kw){ const arr=TRANSCRIPTS[vid]; if(!arr) return [];
-  const k=kw.toLowerCase(), out=[];
-  for(let i=0;i<arr.length;i++){ if(arr[i][1].toLowerCase().includes(k)){
+  const re=makeRe(kw); if(!re) return []; const out=[];
+  for(let i=0;i<arr.length;i++){ re.lastIndex=0; if(re.test(arr[i][1])){
     out.push({t:arr[i][0], x:arr[i][1]}); if(out.length>=60) break; } }
   return out; }
-function hl(raw, kw){ if(!kw) return esc(raw);
-  const k=kw.toLowerCase(), low=raw.toLowerCase(); let out="", i=0;
-  while(true){ const j=low.indexOf(k,i); if(j<0){ out+=esc(raw.slice(i)); break; }
-    out+=esc(raw.slice(i,j))+"<mark>"+esc(raw.slice(j,j+k.length))+"</mark>"; i=j+k.length; }
+function hl(raw, kw){ const re=makeRe(kw); if(!re) return esc(raw);
+  let out="", i=0, m; re.lastIndex=0;
+  while((m=re.exec(raw))!==null){
+    if(m[0].length===0){ re.lastIndex++; continue; }   // évite une boucle infinie
+    out+=esc(raw.slice(i,m.index))+"<mark>"+esc(m[0])+"</mark>"; i=re.lastIndex; }
+  out+=esc(raw.slice(i));
   return out; }
 
 // --- Modale transcript : transcript complet d'une VOD, clic sur une ligne = seek ---
