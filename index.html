@@ -74,15 +74,7 @@
   .group { margin-bottom:12px; border:1px solid var(--line); border-radius:12px;
     overflow:hidden; background:var(--panel); }
   .ghead { padding:11px 14px; display:flex; gap:12px; align-items:center; background:var(--panel2);
-    cursor:pointer; user-select:none; }
-  .ghead:hover { background:#232834; }
-  .ghead.nocollapse { cursor:default; }
-  .ghead.nocollapse:hover { background:var(--panel2); }
-  .chev.x { visibility:hidden; }
-  .group.open .ghead { border-bottom:1px solid var(--line); }
-  .chev { flex:none; color:var(--muted); font-size:12px; width:14px; text-align:center;
-    transition:transform .15s; }
-  .group.open .chev { transform:rotate(90deg); }
+    user-select:none; border-bottom:1px solid var(--line); }
   .thumb { width:72px; height:40px; object-fit:cover; border-radius:6px; flex:none;
     background:#000; border:1px solid var(--line); }
   .ginfo { flex:1; min-width:0; }
@@ -93,9 +85,8 @@
     font-variant-numeric:tabular-nums; }
   .gcounts .cc { display:flex; gap:3px; align-items:center; font-weight:650; }
   /* timeline (toujours visible, même replié : vue d'ensemble) */
-  .timeline { position:relative; height:26px; margin:10px 14px 0; border-radius:6px;
+  .timeline { position:relative; height:62px; margin:10px 14px 12px; border-radius:8px;
     background:var(--panel2); border:1px solid var(--line); cursor:crosshair; }
-  .group.open .timeline { margin-bottom:2px; }
   /* pellicule de vignettes (storyboard) en fond de la timeline */
   .filmstrip { position:absolute; inset:0; display:flex; overflow:hidden;
     border-radius:inherit; z-index:0; }
@@ -108,41 +99,13 @@
     background:var(--c); opacity:.9; cursor:pointer; transition:transform .1s; z-index:2;
     box-shadow:0 0 3px rgba(0,0,0,.8); }
   .tick:hover { transform:scaleX(2.4); opacity:1; }
-  .body { display:none; }
-  .group.open .body { display:block; }
-  .chips { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
-    gap:7px; padding:12px 14px; }
-  .chip { display:flex; align-items:stretch; background:var(--panel2);
-    border:1px solid var(--line); border-left:3px solid var(--c); border-radius:8px;
-    overflow:hidden; transition:.1s; scroll-margin:66px; }
-  .chip:hover { border-color:var(--c); }
-  .chip.active { background:#2a1b22; outline:2px solid var(--c); outline-offset:-1px; }
-  .chip .play { flex:1; display:flex; flex-direction:column; gap:2px; cursor:pointer;
-    background:none; border:0; color:var(--text); font:inherit; text-align:left;
-    padding:6px 6px 6px 10px; min-width:0; }
-  .chip .row1 { display:flex; gap:7px; align-items:center; }
-  .chip .play:hover .t { color:var(--c); }
-  .chip .em { font-size:13px; }
-  .chip .t { font-variant-numeric:tabular-nums; font-weight:600; }
-  .chip .sc { font-size:11px; color:#0b0d12; background:var(--c); border-radius:6px;
-    padding:1px 6px; font-weight:700; margin-left:auto; }
-  .chip .snip { font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis;
-    white-space:nowrap; max-width:100%; }
-  .chip .snip:empty::before { content:"—"; opacity:.4; }
-  .chip .act { cursor:pointer; background:none; border:0; border-left:1px solid var(--line);
-    color:var(--muted); padding:0 8px; font-size:13px; text-decoration:none; display:flex;
-    align-items:center; }
-  .chip .act:hover { color:var(--c); background:#ffffff0d; }
-  .chip .act.ok { color:#7CFC98; }
+  .tick.active { transform:scaleX(2.6); opacity:1; z-index:4;
+    box-shadow:0 0 7px var(--c), 0 0 3px #fff; }
   .nowtext { font-style:italic; }
   /* recherche plein-texte */
   input[type=search].kw { min-width:210px; border-color:#1e5a66; }
   input[type=search].kw:focus { outline:1px solid #22d3ee; }
   mark { background:#22d3ee; color:#06222a; border-radius:3px; padding:0 2px; font-weight:600; }
-  .shead { padding:9px 14px 0; font-size:12px; font-weight:650; color:#22d3ee; }
-  .chips.srch { padding-top:7px; }
-  .chip.sr .snip { white-space:normal; display:-webkit-box; -webkit-line-clamp:2;
-    -webkit-box-orient:vertical; overflow:hidden; }
   .tick.tsearch { width:3px; opacity:.95; z-index:2; box-shadow:0 0 4px #22d3ee; }
   /* boutons d'en-tête de VOD (focus / transcript) */
   .gacts { flex:none; display:flex; gap:6px; }
@@ -209,7 +172,6 @@
     <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
     <input type="search" id="filter" placeholder="Filter VOD title…">
     <input type="search" id="kw" class="kw" placeholder="🔎 Search what she said…">
-    <button id="toggleAll" class="dchip">Expand all</button>
   </span>
 </header>
 <div id="sbprev"></div>
@@ -264,9 +226,8 @@
 let DATA=null, DET={}, active=new Set(), sortMode="chrono";
 let flat=[], cur=-1;   // flat = moments visibles dans l'ordre d'affichage
 let player=null, playerReady=false, curVid=null, pending=null;
-let openVods=new Set();   // VOD dépliées (accordéon) — persisté entre les rendus
-let scrollToVod=null, pendingSelect=null;   // post-render : recentrage / sélection différée
 let selKey=null;          // clé du moment sélectionné — réappliquée après chaque re-rendu
+const TLH=62;             // hauteur de la barre (= hauteur de l'en-tête)
 let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
 let page=0;               // page courante (pagination des VOD)
@@ -426,7 +387,8 @@ function buildFilmstrip(el){
   const sb=el._sb, dur=el._dur, W=el.clientWidth, H=el.clientHeight;
   if(!sb||W<=0||H<=0) return false;   // pas encore de layout → réessaiera
   el._built=true;
-  const N=Math.max(1,Math.round(W/48)), slotW=W/N;   // ~48px par vignette
+  // largeur de vignette proportionnelle à la hauteur (≈ cadrage 16:9 agréable)
+  const tileW=Math.max(48,Math.round(H*1.4)), N=Math.max(1,Math.round(W/tileW)), slotW=W/N;
   const frag=document.createDocumentFragment();
   for(let i=0;i<N;i++){
     const t=((i+0.5)/N)*dur, s=sbTileStyle(sb,t,slotW,H);
@@ -489,9 +451,6 @@ function select(i){
   if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
   cur=i; const m=flat[cur]; m.el.classList.add("active");
   selKey=m.vod+"@"+m.t+"@"+m.type;   // mémorise la sélection (survit aux re-rendus de fitPage)
-  // déplie la VOD du moment (si on arrive depuis la timeline d'une carte repliée)
-  if(m.group && !m.group.classList.contains("open")){
-    m.group.classList.add("open"); openVods.add(m.vod); syncToggleAll(); }
   playAt(m.vod, m.t);
   const d=DET[m.type]||{color:"#888",emoji:"",label:m.type};
   document.getElementById("nowTitle").textContent=m.title;
@@ -570,19 +529,14 @@ function render(){
     return ok;
   });
   const nV=visible.length;
-  const autoKwExpand = kw && nV<=5;   // auto-déplier si peu de VOD matchent
   // Pagination (pageSize ajusté à la hauteur après le rendu, voir fitPage).
   const pages=Math.max(1,Math.ceil(nV/pageSize));
   if(page>=pages) page=pages-1; if(page<0) page=0;
 
   visible.slice(page*pageSize,(page+1)*pageSize).forEach(v=>{
-    const items=shownOf(v);                       // moments filtrés (corps + timeline)
+    const items=shownOf(v);                       // moments du filtre actif (ticks)
     const sres = kw ? matchSegs(v.vod_id, kw) : [];
-    const hasBody = items.length>0 || sres.length>0;   // qqch à déplier/afficher
     const g=document.createElement("div"); g.className="group"; g.dataset.vod=v.vod_id;
-    let openNow = hasBody && (q ? true : openVods.has(v.vod_id));
-    if(autoKwExpand && hasBody) openNow=true;
-    if(openNow) g.classList.add("open");
 
     // En-tête : compteurs COMPLETS (tous types) = vue d'ensemble permanente.
     const byType={}; v.items.forEach(it=>byType[it.type]=(byType[it.type]||0)+1);
@@ -591,52 +545,48 @@ function render(){
     if(kw) counts+=`<span class="cc" style="color:${SEARCH.color}">🔎 ${sres.length}</span>`;
     const meta=[v.date,fmtDur(v.duration)].filter(Boolean).join("  ·  ");
     const thumb=v.thumbnail?`<img class="thumb" src="${esc(v.thumbnail)}" loading="lazy" alt="">`:"";
-    const head=document.createElement("div"); head.className="ghead"+(hasBody?"":" nocollapse");
-    head.innerHTML=`${hasBody?'<span class="chev">▶</span>':'<span class="chev x"></span>'}${thumb}`+
+    const head=document.createElement("div"); head.className="ghead";
+    head.innerHTML=`${thumb}`+
       `<div class="ginfo"><div class="gtitle">${esc(v.title)}</div>`+
       `<div class="gmeta">${esc(meta)}</div></div><div class="gcounts">${counts}</div>`;
     const gacts=document.createElement("div"); gacts.className="gacts";
     const fb=document.createElement("button"); fb.className="gbtn"+(focusVod===v.vod_id?" on":"");
     fb.textContent="📌"; fb.title="Focus this VOD (filter everything to it)";
-    fb.onclick=e=>{ e.stopPropagation(); focusVod=(focusVod===v.vod_id)?null:v.vod_id;
-      if(focusVod) openVods.add(v.vod_id); reRender(); };
+    fb.onclick=e=>{ e.stopPropagation(); focusVod=(focusVod===v.vod_id)?null:v.vod_id; reRender(); };
     const tb=document.createElement("button"); tb.className="gbtn"; tb.textContent="📄";
     tb.title="Open full transcript (jumps to the selected moment)";
     tb.onclick=e=>{ e.stopPropagation();
-      // si un moment de CETTE VOD est sélectionné, on ouvre dessus.
       const ft=(cur>=0&&flat[cur]&&flat[cur].vod===v.vod_id)?flat[cur].t:null;
       openTranscript(v.vod_id, ft); };
     gacts.appendChild(fb); gacts.appendChild(tb); head.appendChild(gacts);
-    if(hasBody) head.onclick=()=>{ const willOpen=!g.classList.contains("open");
-      willOpen?openVods.add(v.vod_id):openVods.delete(v.vod_id);
-      scrollToVod=willOpen?v.vod_id:null; render(); };   // re-render : construit/retire le body
     g.appendChild(head);
 
-    // timeline (ordre chronologique) — seulement s'il y a des indicateurs à montrer.
-    let tl=null;
-    if(hasBody){
+    // Barre TOUJOURS visible : pellicule en fond + ticks (filtre actif / recherche).
     const dur=v.duration||Math.max(...items.map(i=>i.t),...sres.map(s=>s.t),1);
-    tl=document.createElement("div"); tl.className="timeline";
-    // Pellicule de vignettes en fond (chargée à l'apparition → lazy).
+    const tl=document.createElement("div"); tl.className="timeline";
     if(v.sb){ const film=document.createElement("div"); film.className="filmstrip";
       film._sb=v.sb; film._dur=dur; tl.appendChild(film); filmObserver().observe(film); }
-    const chrono=items.slice().sort((a,b)=>a.t-b.t);
-    chrono.forEach(it=>{ const d=DET[it.type]||{color:"#888"};
+
+    // Moments = détections (filtre actif) + recherche. Chacun : 1 tick + 1 entrée flat.
+    const moments=[];
+    items.slice().sort((a,b)=>a.t-b.t).forEach(it=>{ const d=DET[it.type]||{color:"#888"};
       const tk=document.createElement("div"); tk.className="tick";
       tk.style.setProperty("--c",d.color);
       tk.style.left=(100*it.t/dur)+"%";
-      tk.style.height=(26*(0.35+0.65*Math.min(it.score,1)))+"px";
+      tk.style.height=(TLH*(0.3+0.7*Math.min(it.score,1)))+"px";
       tk.title=`${it.hms} · ${(DET[it.type]||{}).label||it.type} · ${it.score.toFixed(2)}`;
-      tk.dataset.key=v.vod_id+"@"+it.t+"@"+it.type;
-      tl.appendChild(tk); });
+      tl.appendChild(tk);
+      moments.push({t:it.t,hms:it.hms,score:it.score,type:it.type,url:it.url,text:it.text||"",tick:tk}); });
     sres.forEach(s=>{ const tk=document.createElement("div"); tk.className="tick tsearch";
       tk.style.setProperty("--c",SEARCH.color);
-      tk.style.left=(100*s.t/dur)+"%"; tk.style.height="26px";
+      tk.style.left=(100*s.t/dur)+"%"; tk.style.height=TLH+"px";
       tk.title=`${hmsT(s.t)} · 🔎 ${s.x}`;
-      tk.dataset.key=v.vod_id+"@"+s.t+"@search";
-      tl.appendChild(tk); });
-    // Curseur + interactions sur toute la barre : survol = aperçu du moment
-    // (même vide), clic = positionne la vidéo. Les ticks gardent leur clic propre.
+      tl.appendChild(tk);
+      const tt=Math.max(0,Math.round(s.t-2));
+      moments.push({t:s.t,hms:hmsT(s.t),score:null,type:"search",
+        url:"https://youtu.be/"+v.vod_id+"?t="+tt,text:s.x,tick:tk}); });
+
+    // Curseur + interactions : survol = aperçu (même vide), clic vide = positionne la vidéo.
     const cursor=document.createElement("div"); cursor.className="tlcursor"; tl.appendChild(cursor);
     const timeAt=e=>{ const r=tl.getBoundingClientRect();
       return { x:e.clientX-r.left, t:Math.max(0,Math.min(dur,(e.clientX-r.left)/r.width*dur)) }; };
@@ -647,71 +597,21 @@ function render(){
     tl.addEventListener("click",e=>{ if(e.target.classList.contains("tick")) return;
       seekTimeline(v, timeAt(e).t); });
     g.appendChild(tl);
-    }  // fin if(hasBody) — timeline
 
-    // Le body (pastilles) n'est construit QUE si la carte est ouverte →
-    // les cartes repliées ne coûtent qu'un en-tête + une timeline.
-    if(openNow){
-    const body=document.createElement("div"); body.className="body";
-
-    // --- pastille générique (détection OU résultat de recherche) ---
-    function makeChip(o){
-      // o: {t,hms,score,type,emoji,color,url,text,html,search}
-      const chip=document.createElement("div"); chip.className="chip"+(o.search?" sr":"");
-      chip.style.setProperty("--c",o.color);
-      const play=document.createElement("button"); play.className="play";
-      const scoreHtml=o.score!=null?`<span class="sc">${o.score.toFixed(2)}</span>`:"";
-      play.innerHTML=`<span class="row1"><span class="em">${o.emoji||""}</span>`+
-        `<span class="t">${o.hms}</span>${scoreHtml}</span>`+
-        `<span class="snip">${o.html!=null?o.html:esc(o.text||"")}</span>`;
-      if(o.text) play.title=o.text;
-      const open=document.createElement("a"); open.className="act"; open.href=o.url;
-      open.target="_blank"; open.rel="noopener"; open.textContent="↗"; open.title="Open on YouTube";
-      const copy=document.createElement("button"); copy.className="act"; copy.textContent="⧉";
-      copy.title="Copy link"; copy.onclick=e=>{ e.preventDefault(); e.stopPropagation(); copyText(o.url,copy); };
-      chip.appendChild(play); chip.appendChild(open); chip.appendChild(copy);
-      if(v.sb){ chip.addEventListener("mouseenter",e=>sbShow(v.sb,o.t,e));
-        chip.addEventListener("mousemove",sbMove); chip.addEventListener("mouseleave",sbHide); }
-      const idx=flat.length;
-      flat.push({vod:v.vod_id,title:v.title,t:o.t,hms:o.hms,score:o.score,
-                 type:o.type,url:o.url,text:o.text||"",el:chip,group:g});
-      play.onclick=()=>select(idx);
-      return chip;
-    }
-
-    // Liste unifiée : détections + résultats de recherche, triés selon le mode
-    // du haut. En tri par score, les résultats (sans score) passent à la fin.
-    const merged=items.map(it=>({t:it.t,hms:it.hms,score:it.score,type:it.type,
-      url:it.url,text:it.text||"",search:false}));
-    if(kw) sres.forEach(s=>{ const tt=Math.max(0,Math.round(s.t-2));
-      merged.push({t:s.t,hms:hmsT(s.t),score:null,type:"search",
-        url:"https://youtu.be/"+v.vod_id+"?t="+tt,text:s.x,kw:kw,search:true}); });
-    merged.sort((a,b)=>{
+    // flat : ordre selon le tri du haut (Prev/Next). Clic d'un tick = sélection du moment.
+    moments.sort((a,b)=>{
       if(sortMode==="chrono") return a.t-b.t;
       const an=a.score==null, bn=b.score==null;
       if(an!==bn) return an?1:-1;          // sans score (recherche) → à la fin
       if(an&&bn) return a.t-b.t;
       return sortMode==="score_desc" ? b.score-a.score : a.score-b.score;
     });
-    if(merged.length){
-      const chips=document.createElement("div"); chips.className="chips";
-      merged.forEach(o=>{ const d=o.search?SEARCH:(DET[o.type]||{color:"#888",emoji:"",label:o.type});
-        chips.appendChild(makeChip({t:o.t,hms:o.hms,score:o.score,type:o.type,
-          emoji:d.emoji,color:d.color,url:o.url,text:o.text,
-          html:o.search?hl(o.text,o.kw):null,search:o.search})); });
-      body.appendChild(chips);
-    }
-    g.appendChild(body);
-    }  // fin if(openNow)
-    list.appendChild(g);
+    moments.forEach(o=>{ const idx=flat.length;
+      flat.push({vod:v.vod_id,title:v.title,t:o.t,hms:o.hms,score:o.score,
+                 type:o.type,url:o.url,text:o.text,el:o.tick,group:g});
+      o.tick.onclick=e=>{ e.stopPropagation(); select(idx); }; });
 
-    // Relie chaque tick à son index flat. Si la carte est repliée (pas de flat),
-    // un clic sur un tick déplie la carte puis sélectionne le moment.
-    const keyToIdx={}; flat.forEach((m,i)=>keyToIdx[m.vod+"@"+m.t+"@"+m.type]=i);
-    if(tl) tl.querySelectorAll(".tick").forEach(tk=>{ const i=keyToIdx[tk.dataset.key];
-      if(i!=null) tk.onclick=()=>select(i);
-      else tk.onclick=()=>{ openVods.add(v.vod_id); scrollToVod=v.vod_id;
-        pendingSelect=tk.dataset.key; render(); }; });
+    list.appendChild(g);
   });
 
   if(!nV){ const msg = kw && !transcriptsReady
@@ -724,18 +624,9 @@ function render(){
   document.getElementById("prevBtn").disabled=true; document.getElementById("nextBtn").disabled=flat.length===0;
   renderPager(pages);
 
-  // Post-rendu : sélection différée (tick d'une carte repliée) ou recentrage.
-  if(pendingSelect){ const key=pendingSelect; pendingSelect=null;
-    const i=flat.findIndex(m=>(m.vod+"@"+m.t+"@"+m.type)===key);
-    if(i>=0) select(i);
-  } else {
-    // Réapplique la sélection si un re-rendu (ex. fitPage) vient d'effacer cur.
-    if(cur<0 && selKey){ const i=flat.findIndex(m=>(m.vod+"@"+m.t+"@"+m.type)===selKey);
-      if(i>=0) reselectSoft(i); }
-    if(scrollToVod){ const el=list.querySelector('.group[data-vod="'+scrollToVod+'"] .ghead');
-      scrollToVod=null; if(el) el.scrollIntoView({block:"nearest"}); }
-  }
-  syncToggleAll();
+  // Post-rendu : réapplique la sélection si un re-rendu (ex. fitPage) a effacé cur.
+  if(cur<0 && selKey){ const i=flat.findIndex(m=>(m.vod+"@"+m.t+"@"+m.type)===selKey);
+    if(i>=0) reselectSoft(i); }
   fitPage();   // ajuste le nb de VOD/page à la hauteur du lecteur
 }
 
@@ -784,23 +675,6 @@ function fitPage(){
     fitting=true; pageSize=next; render(); fitting=false;
   }
 }
-
-// Bouton Expand all / Collapse all : reflète l'état et bascule toutes les VOD.
-function visibleVodIds(){
-  if(!active.size && !kwVal()) return [];   // catalogue : rien à déplier
-  const q=document.getElementById("filter").value.trim().toLowerCase();
-  const kw=kwVal();
-  return DATA.vods.filter(v=>(!focusVod||v.vod_id===focusVod) &&
-    (!q||(v.title||"").toLowerCase().includes(q)) &&
-    (kw ? matchSegs(v.vod_id,kw).length>0 : shownOf(v).length>0)).map(v=>v.vod_id);
-}
-function syncToggleAll(){ const btn=document.getElementById("toggleAll"); if(!DATA) return;
-  const vis=visibleVodIds(); const allOpen=vis.length>0 && vis.every(id=>openVods.has(id));
-  btn.textContent=allOpen?"Collapse all":"Expand all"; btn.dataset.all=allOpen?"1":"0"; }
-document.getElementById("toggleAll").onclick=function(){
-  if(this.dataset.all==="1"){ visibleVodIds().forEach(id=>openVods.delete(id)); }
-  else { visibleVodIds().forEach(id=>openVods.add(id)); }
-  render(); };
 
 document.getElementById("prevBtn").onclick=()=>select(cur-1);
 document.getElementById("nextBtn").onclick=()=> select(cur<0?0:cur+1);
