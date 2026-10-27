@@ -96,8 +96,17 @@
   .timeline { position:relative; height:26px; margin:10px 14px 0; border-radius:6px;
     background:var(--panel2); border:1px solid var(--line); cursor:crosshair; }
   .group.open .timeline { margin-bottom:2px; }
+  /* pellicule de vignettes (storyboard) en fond de la timeline */
+  .filmstrip { position:absolute; inset:0; display:flex; overflow:hidden;
+    border-radius:inherit; z-index:0; }
+  .filmstrip::after { content:""; position:absolute; inset:0; pointer-events:none;
+    background:rgba(11,13,18,.5); }   /* assombri → les ticks ressortent */
+  .fscell { flex:1 1 0; min-width:0; background-repeat:no-repeat; }
+  .tlcursor { position:absolute; top:0; bottom:0; width:1px; margin-left:-.5px;
+    background:rgba(255,255,255,.7); pointer-events:none; display:none; z-index:3; }
   .tick { position:absolute; bottom:0; width:3px; margin-left:-1px; border-radius:2px;
-    background:var(--c); opacity:.85; cursor:pointer; transition:transform .1s; }
+    background:var(--c); opacity:.9; cursor:pointer; transition:transform .1s; z-index:2;
+    box-shadow:0 0 3px rgba(0,0,0,.8); }
   .tick:hover { transform:scaleX(2.4); opacity:1; }
   .body { display:none; }
   .group.open .body { display:block; }
@@ -265,6 +274,7 @@ let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "old
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
 let fitting=false;        // garde-fou anti-récursion du calcul de hauteur
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
+let fsObserver=null;      // IntersectionObserver : pellicules chargées à l'apparition
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
 
 // Moments d'une VOD à afficher : filtres opt-in → aucun type coché = AUCUN
@@ -396,6 +406,52 @@ function sbMove(e){ const prev=document.getElementById("sbprev");
   prev.style.left=x+"px"; prev.style.top=Math.max(8,y)+"px"; }
 function sbHide(){ document.getElementById("sbprev").style.display="none"; }
 
+// --- Pellicule : une vignette storyboard "cover" dans une cellule elW×elH ---
+function sbTileStyle(sb, t, elW, elH){
+  if(!sb||!sb.tpl||!sb.fd||!sb.rows||!sb.cols||elW<=0||elH<=0) return null;
+  const per=sb.rows*sb.cols, ptd=sb.fd/per;         // durée d'une tuile (s)
+  let g=Math.max(0,Math.floor(t/ptd));
+  let frag=Math.min(Math.floor(g/per), sb.n-1); if(frag<0) frag=0;
+  let tile=Math.min(g-frag*per, per-1); if(tile<0) tile=0;
+  const row=Math.floor(tile/sb.cols), col=tile%sb.cols;
+  const scale=Math.max(elW/sb.tw, elH/sb.th);        // "cover" (remplit la cellule)
+  const offX=(sb.tw*scale-elW)/2, offY=(sb.th*scale-elH)/2;
+  return { url:sb.tpl.replace("{i}",frag),
+    size:(sb.cols*sb.tw*scale)+"px "+(sb.rows*sb.th*scale)+"px",
+    pos:"-"+(col*sb.tw*scale+offX)+"px -"+(row*sb.th*scale+offY)+"px" }; }
+
+// Construit les cellules d'une pellicule (appelé quand elle entre dans le viewport).
+function buildFilmstrip(el){
+  if(el._built) return true;
+  const sb=el._sb, dur=el._dur, W=el.clientWidth, H=el.clientHeight;
+  if(!sb||W<=0||H<=0) return false;   // pas encore de layout → réessaiera
+  el._built=true;
+  const N=Math.max(1,Math.round(W/48)), slotW=W/N;   // ~48px par vignette
+  const frag=document.createDocumentFragment();
+  for(let i=0;i<N;i++){
+    const t=((i+0.5)/N)*dur, s=sbTileStyle(sb,t,slotW,H);
+    const c=document.createElement("div"); c.className="fscell";
+    if(s){ const safe=s.url.replace(/[\\'"\r\n]/g,ch=>"\\"+ch);
+      c.style.backgroundImage="url('"+safe+"')";
+      c.style.backgroundSize=s.size; c.style.backgroundPosition=s.pos; }
+    frag.appendChild(c);
+  }
+  el.appendChild(frag); return true;
+}
+
+// Observer partagé : ne charge les vignettes que lorsque la barre est visible
+// (évite une rafale de requêtes quand beaucoup de VOD sont ouvertes).
+function filmObserver(){
+  if(fsObserver) return fsObserver;
+  if(!("IntersectionObserver" in window)){          // repli : build direct
+    fsObserver={observe:buildFilmstrip, disconnect(){}}; return fsObserver; }
+  fsObserver=new IntersectionObserver((entries,obs)=>{
+    entries.forEach(en=>{ if(en.isIntersecting && buildFilmstrip(en.target))
+      obs.unobserve(en.target); });
+  }, {root:null, rootMargin:"200px"});
+  return fsObserver;
+}
+
 // API YouTube IFrame : seekTo si même vidéo (pas de rechargement), loadVideoById sinon.
 function onYouTubeIframeAPIReady(){
   player=new YT.Player("player",{ width:"100%", height:"100%",
@@ -457,6 +513,22 @@ function select(i){
   }
 }
 
+// Clic sur un point "vide" de la timeline : positionne la vidéo à cet instant
+// (pas de détection associée → pas de sélection de pastille).
+function seekTimeline(v, t){
+  if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
+  cur=-1; selKey=null;
+  playAt(v.vod_id, t);
+  document.getElementById("nowTitle").textContent=v.title;
+  document.getElementById("nowSub").innerHTML=`<span>@ ${hmsT(t)}</span>`;
+  document.getElementById("nowText").textContent="";
+  document.getElementById("nowOpen").href="https://youtu.be/"+v.vod_id+"?t="+Math.max(0,Math.round(t));
+  document.getElementById("counter").textContent="— / "+flat.length;
+  document.getElementById("prevBtn").disabled=true;
+  document.getElementById("nextBtn").disabled=flat.length===0;
+  if(transcriptOpen() && tVod===v.vod_id) scrollTranscriptTo(t);
+}
+
 // Restaure l'état de sélection (surlignage + compteur + Prev/Next) après un
 // re-rendu, SANS relancer la lecture ni le recentrage. Utilisé quand fitPage()
 // reconstruit la liste alors qu'un moment était déjà sélectionné.
@@ -480,6 +552,7 @@ function render(){
   const q=document.getElementById("filter").value.trim().toLowerCase();
   const kw=kwVal();
   const list=document.getElementById("list"); list.innerHTML=""; flat=[]; cur=-1;
+  if(fsObserver) fsObserver.disconnect();   // les anciennes pellicules sont jetées
 
   // Ordre des VOD (DATA.vods est récent→ancien ; on inverse si "oldest").
   const ordered=(vodOrder==="oldest")?DATA.vods.slice().reverse():DATA.vods;
@@ -544,6 +617,9 @@ function render(){
     if(hasBody){
     const dur=v.duration||Math.max(...items.map(i=>i.t),...sres.map(s=>s.t),1);
     tl=document.createElement("div"); tl.className="timeline";
+    // Pellicule de vignettes en fond (chargée à l'apparition → lazy).
+    if(v.sb){ const film=document.createElement("div"); film.className="filmstrip";
+      film._sb=v.sb; film._dur=dur; tl.appendChild(film); filmObserver().observe(film); }
     const chrono=items.slice().sort((a,b)=>a.t-b.t);
     chrono.forEach(it=>{ const d=DET[it.type]||{color:"#888"};
       const tk=document.createElement("div"); tk.className="tick";
@@ -552,17 +628,24 @@ function render(){
       tk.style.height=(26*(0.35+0.65*Math.min(it.score,1)))+"px";
       tk.title=`${it.hms} · ${(DET[it.type]||{}).label||it.type} · ${it.score.toFixed(2)}`;
       tk.dataset.key=v.vod_id+"@"+it.t+"@"+it.type;
-      if(v.sb){ tk.addEventListener("mouseenter",e=>sbShow(v.sb,it.t,e));
-        tk.addEventListener("mousemove",sbMove); tk.addEventListener("mouseleave",sbHide); }
       tl.appendChild(tk); });
     sres.forEach(s=>{ const tk=document.createElement("div"); tk.className="tick tsearch";
       tk.style.setProperty("--c",SEARCH.color);
       tk.style.left=(100*s.t/dur)+"%"; tk.style.height="26px";
       tk.title=`${hmsT(s.t)} · 🔎 ${s.x}`;
       tk.dataset.key=v.vod_id+"@"+s.t+"@search";
-      if(v.sb){ tk.addEventListener("mouseenter",e=>sbShow(v.sb,s.t,e));
-        tk.addEventListener("mousemove",sbMove); tk.addEventListener("mouseleave",sbHide); }
       tl.appendChild(tk); });
+    // Curseur + interactions sur toute la barre : survol = aperçu du moment
+    // (même vide), clic = positionne la vidéo. Les ticks gardent leur clic propre.
+    const cursor=document.createElement("div"); cursor.className="tlcursor"; tl.appendChild(cursor);
+    const timeAt=e=>{ const r=tl.getBoundingClientRect();
+      return { x:e.clientX-r.left, t:Math.max(0,Math.min(dur,(e.clientX-r.left)/r.width*dur)) }; };
+    tl.addEventListener("mousemove",e=>{ const p=timeAt(e);
+      cursor.style.display="block"; cursor.style.left=p.x+"px";
+      if(v.sb) sbShow(v.sb,p.t,e); });
+    tl.addEventListener("mouseleave",()=>{ cursor.style.display="none"; sbHide(); });
+    tl.addEventListener("click",e=>{ if(e.target.classList.contains("tick")) return;
+      seekTimeline(v, timeAt(e).t); });
     g.appendChild(tl);
     }  // fin if(hasBody) — timeline
 
