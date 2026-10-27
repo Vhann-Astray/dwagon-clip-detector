@@ -141,8 +141,18 @@
   .tline.cur .tt { color:var(--accent); }
   /* aperçu storyboard flottant au survol d'une pastille */
   #sbprev { position:fixed; z-index:50; pointer-events:none; display:none;
-    width:304px; height:171px; border-radius:8px; border:1px solid var(--line);
-    box-shadow:0 10px 30px -6px #000; background:#000 no-repeat; background-size:cover; }
+    width:306px; border-radius:10px; border:1px solid var(--line); overflow:hidden;
+    box-shadow:0 12px 34px -8px #000; background:var(--panel); }
+  #sbprev .sbimg { width:100%; height:172px; background:#000 no-repeat; background-size:cover; }
+  #sbprev .sbcap { padding:7px 10px 8px; }
+  #sbprev .sbline1 { display:flex; gap:7px; align-items:center; font-size:12px; }
+  #sbprev .sbt { font-variant-numeric:tabular-nums; font-weight:700; color:var(--text); }
+  #sbprev .sbbadge { font-size:11px; font-weight:700; color:#0b0d12; border-radius:6px; padding:1px 7px; }
+  #sbprev .sbsc { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; margin-left:auto; }
+  #sbprev .sbtext { margin-top:4px; font-size:12px; color:var(--text); line-height:1.35;
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  #sbprev .sbtext:empty { display:none; }
+  #sbprev .sbhint { margin-top:5px; font-size:10px; color:var(--muted); opacity:.75; }
   .pager { display:flex; gap:10px; align-items:center; justify-content:center; padding:12px 0 4px; }
   .pager button { background:var(--panel2); border:1px solid var(--line); color:var(--text);
     border-radius:8px; padding:7px 14px; font:inherit; font-size:13px; cursor:pointer; }
@@ -174,7 +184,7 @@
     <input type="search" id="kw" class="kw" placeholder="🔎 Search what she said…">
   </span>
 </header>
-<div id="sbprev"></div>
+<div id="sbprev"><div class="sbimg"></div><div class="sbcap"></div></div>
 <div class="filenote" id="fileNote" style="display:none">
   ⚠️ Opened as a local file — the player and data loading need http. Use the GitHub Pages URL
   or run <code>python -m http.server</code> in this folder.
@@ -345,20 +355,40 @@ function sbStyle(sb, t){
   const row=Math.floor(tile/sb.cols), col=tile%sb.cols;
   // échelle = largeur affichée / largeur native de la vignette (une tuile remplit
   // l'aperçu). clientWidth doit être lu APRÈS display:block (sinon 0 → crop).
-  const prev=document.getElementById("sbprev"), scale=(prev.clientWidth||302)/sb.tw;
+  const img=document.querySelector("#sbprev .sbimg"), scale=((img&&img.clientWidth)||304)/sb.tw;
   return { url:sb.tpl.replace("{i}",frag),
     size:(sb.cols*sb.tw*scale)+"px "+(sb.rows*sb.th*scale)+"px",
     pos:"-"+(col*sb.tw*scale)+"px -"+(row*sb.th*scale)+"px" }; }
 
-function sbShow(sb, t, e){
+// Segment de transcript couvrant l'instant t (ou "" si trou > 12 s / pas prêt).
+function transcriptAt(vodId, t){
+  const segs=TRANSCRIPTS[vodId]; if(!segs||!segs.length) return "";
+  let lo=0,hi=segs.length-1,best=-1;
+  while(lo<=hi){ const mid=(lo+hi)>>1; if(segs[mid][0]<=t){ best=mid; lo=mid+1; } else hi=mid-1; }
+  return (best>=0 && t-segs[best][0]<=12) ? segs[best][1] : ""; }
+
+// Légende de l'aperçu : horodatage (+ badge type/score) + phrase (mot cherché surligné).
+function buildCaption(cap){
+  if(!cap) return "";
+  const badge=cap.badge?`<span class="sbbadge" style="background:${cap.badge.color}">`+
+    `${cap.badge.emoji||""} ${esc(cap.badge.label)}</span>`:"";
+  const sc=cap.score!=null?`<span class="sbsc">score ${cap.score.toFixed(2)}</span>`:"";
+  const l1=`<div class="sbline1"><span class="sbt">${cap.hms}</span>${badge}${sc}</div>`;
+  const txt=`<div class="sbtext">${cap.text?(cap.kw?hl(cap.text,cap.kw):esc(cap.text)):""}</div>`;
+  return l1+txt+`<div class="sbhint">clic pour aller ici</div>`; }
+
+// Aperçu unifié : image storyboard + légende. cap = {hms,badge,score,text,kw}.
+function sbShow(sb, t, e, cap){
   const prev=document.getElementById("sbprev");
+  const img=prev.querySelector(".sbimg");
   prev.style.display="block";          // visible d'abord → clientWidth correct
-  const s=sbStyle(sb,t);
-  if(!s){ prev.style.display="none"; return; }
-  // Échappe les caractères qui pourraient sortir du url('…') CSS (défense en profondeur).
-  const safeUrl=s.url.replace(/[\\'"\r\n]/g,c=>"\\"+c);
-  prev.style.backgroundImage="url('"+safeUrl+"')";
-  prev.style.backgroundSize=s.size; prev.style.backgroundPosition=s.pos;
+  const s=sb?sbStyle(sb,t):null;
+  if(!s && !(cap && (cap.text||cap.badge))){ prev.style.display="none"; return; }
+  if(s){ const safeUrl=s.url.replace(/[\\'"\r\n]/g,c=>"\\"+c);
+    img.style.display="block"; img.style.backgroundImage="url('"+safeUrl+"')";
+    img.style.backgroundSize=s.size; img.style.backgroundPosition=s.pos; }
+  else img.style.display="none";
+  prev.querySelector(".sbcap").innerHTML=buildCaption(cap);
   sbMove(e); }
 function sbMove(e){ const prev=document.getElementById("sbprev");
   let x=e.clientX+16, y=e.clientY+16;
@@ -574,13 +604,13 @@ function render(){
       tk.style.setProperty("--c",d.color);
       tk.style.left=(100*it.t/dur)+"%";
       tk.style.height=(TLH*(0.3+0.7*Math.min(it.score,1)))+"px";
-      tk.title=`${it.hms} · ${(DET[it.type]||{}).label||it.type} · ${it.score.toFixed(2)}`;
+      tk._moment={t:it.t,hms:it.hms,score:it.score,type:it.type,text:it.text||"",search:false};
       tl.appendChild(tk);
       moments.push({t:it.t,hms:it.hms,score:it.score,type:it.type,url:it.url,text:it.text||"",tick:tk}); });
     sres.forEach(s=>{ const tk=document.createElement("div"); tk.className="tick tsearch";
       tk.style.setProperty("--c",SEARCH.color);
       tk.style.left=(100*s.t/dur)+"%"; tk.style.height=TLH+"px";
-      tk.title=`${hmsT(s.t)} · 🔎 ${s.x}`;
+      tk._moment={t:s.t,hms:hmsT(s.t),score:null,type:"search",text:s.x,search:true};
       tl.appendChild(tk);
       const tt=Math.max(0,Math.round(s.t-2));
       moments.push({t:s.t,hms:hmsT(s.t),score:null,type:"search",
@@ -592,7 +622,13 @@ function render(){
       return { x:e.clientX-r.left, t:Math.max(0,Math.min(dur,(e.clientX-r.left)/r.width*dur)) }; };
     tl.addEventListener("mousemove",e=>{ const p=timeAt(e);
       cursor.style.display="block"; cursor.style.left=p.x+"px";
-      if(v.sb) sbShow(v.sb,p.t,e); });
+      const m=e.target&&e.target._moment;   // survol d'un tick → infos du moment
+      let cap;
+      if(m){ const d=m.search?{emoji:"🔎",label:"Search",color:SEARCH.color}
+                             :(DET[m.type]||{emoji:"",label:m.type,color:"#888"});
+        cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null}; }
+      else cap={hms:hmsT(p.t),badge:null,score:null,text:transcriptAt(v.vod_id,p.t),kw:kwVal()||null};
+      if(v.sb||cap.text) sbShow(v.sb, m?m.t:p.t, e, cap); });
     tl.addEventListener("mouseleave",()=>{ cursor.style.display="none"; sbHide(); });
     tl.addEventListener("click",e=>{ if(e.target.classList.contains("tick")) return;
       seekTimeline(v, timeAt(e).t); });
