@@ -332,9 +332,10 @@ function scrollBodyToLine(ln){ const body=document.getElementById("tmBody");
   const br=ln.getBoundingClientRect(), pr=body.getBoundingClientRect();
   animScroll(body, body.scrollTop + (br.top-pr.top) - body.clientHeight/2 + br.height/2, 170); }
 function scrollTranscriptTo(t){ const body=document.getElementById("tmBody");
-  let target=null; body.querySelectorAll(".tline").forEach(ln=>{
-    if(parseFloat(ln.dataset.t)<=t) target=ln; });
-  if(target) scrollBodyToLine(target); }
+  const lines=body.querySelectorAll(".tline"); if(!lines.length) return;
+  let target=lines[0];   // repli : rien avant la cible → 1re ligne (jamais de .cur périmé)
+  lines.forEach(ln=>{ if(parseFloat(ln.dataset.t)<=t) target=ln; });
+  scrollBodyToLine(target); }
 // Rail vertical : un tick par ligne contenant le mot cherché → clic = saut.
 function buildMatchRail(kw){
   const rail=document.getElementById("tmRail"), body=document.getElementById("tmBody");
