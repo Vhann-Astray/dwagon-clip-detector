@@ -132,6 +132,15 @@
   .ttick { position:absolute; left:2px; right:2px; height:3px; margin-top:-1px; border-radius:2px;
     background:#22d3ee; cursor:pointer; opacity:.8; }
   .ttick:hover { opacity:1; transform:scaleY(2.2); }
+  .ttick.on { background:#fff; opacity:1; transform:scaleY(2.8); box-shadow:0 0 5px #22d3ee; }
+  /* navigation entre occurrences (recherche dans le transcript) */
+  .mnav { display:flex; align-items:center; gap:4px; flex:none; }
+  .mnavbtn { background:var(--panel); border:1px solid var(--line); color:var(--text);
+    border-radius:7px; cursor:pointer; padding:5px 10px; font:inherit; font-size:12px; }
+  .mnavbtn:hover:not(:disabled) { border-color:var(--accent); }
+  .mnavbtn:disabled { opacity:.4; cursor:default; }
+  .mcount { font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums;
+    min-width:42px; text-align:center; }
   .tline { display:flex; gap:10px; width:100%; text-align:left; background:none; border:0;
     color:var(--text); font:inherit; padding:6px 10px; border-radius:7px; cursor:pointer; }
   .tline:hover { background:#ffffff0d; }
@@ -195,6 +204,11 @@
     <div class="mhead">
       <span class="mtitle" id="tmTitle">Transcript</span>
       <input type="search" id="tsearch" class="kw" placeholder="🔎 Find in transcript…">
+      <span class="mnav">
+        <button id="tmPrev" class="mnavbtn" title="Previous match (Shift+Enter)" disabled>Prev</button>
+        <button id="tmNext" class="mnavbtn" title="Next match (Enter)" disabled>Next</button>
+        <span id="tmCount" class="mcount"></span>
+      </span>
       <button id="tmClose" class="mclose">✕</button>
     </div>
     <div class="mwrap">
@@ -241,6 +255,7 @@ let playT=null, playVod=null;   // dernière position jouée (moment OU clic bar
 const TLH=62;             // hauteur de la barre (= hauteur de l'en-tête)
 let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
+let tMatches=[], tMatchIdx=-1;   // occurrences du mot cherché dans le transcript + index courant
 let page=0;               // page courante (pagination des VOD)
 let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "oldest"
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
@@ -304,15 +319,35 @@ function scrollTranscriptTo(t){ const body=document.getElementById("tmBody");
 // Rail vertical : un tick par ligne contenant le mot cherché → clic = saut.
 function buildMatchRail(kw){
   const rail=document.getElementById("tmRail"), body=document.getElementById("tmBody");
-  rail.innerHTML="";
+  rail.innerHTML=""; tMatches=[]; tMatchIdx=-1;
   const lines=body.querySelectorAll(".tline"), n=lines.length;
-  if(!kw||!n){ rail.style.display="none"; return; }
-  let any=false;
-  lines.forEach((ln,i)=>{ if(ln.querySelector("mark")){ any=true;
+  if(!kw||!n){ rail.style.display="none"; updateMatchUI(); return; }
+  lines.forEach((ln,i)=>{ if(ln.querySelector("mark")){
     const tk=document.createElement("div"); tk.className="ttick"; tk.style.top=(100*i/n)+"%";
     tk.title=hmsT(parseFloat(ln.dataset.t));
-    tk.onclick=()=>scrollBodyToLine(ln); rail.appendChild(tk); } });
-  rail.style.display=any?"block":"none";
+    const mi=tMatches.length; tk.onclick=()=>gotoMatchIndex(mi);
+    rail.appendChild(tk); tMatches.push({line:ln, tick:tk}); } });
+  rail.style.display=tMatches.length?"block":"none";
+  updateMatchUI();
+}
+// Navigation entre occurrences : Entrée / boutons Prev-Next (en boucle).
+function gotoMatchIndex(i){
+  if(i<0||i>=tMatches.length) return;
+  tMatchIdx=i; const m=tMatches[i];
+  scrollBodyToLine(m.line);
+  document.querySelectorAll("#tmRail .ttick.on").forEach(t=>t.classList.remove("on"));
+  m.tick.classList.add("on");
+  updateMatchUI();
+}
+function gotoMatch(dir){
+  const n=tMatches.length; if(!n) return;
+  gotoMatchIndex(tMatchIdx<0 ? (dir>0?0:n-1) : (tMatchIdx+dir+n)%n);
+}
+function updateMatchUI(){
+  const n=tMatches.length;
+  document.getElementById("tmCount").textContent = n ? ((tMatchIdx<0?0:tMatchIdx+1)+" / "+n) : "";
+  document.getElementById("tmPrev").disabled = !n;
+  document.getElementById("tmNext").disabled = !n;
 }
 // Ancre le panneau sur la colonne de droite (les cards) → le lecteur reste visible.
 function positionTranscript(){
@@ -739,6 +774,11 @@ document.getElementById("tsearch").addEventListener("input",debounce(()=>{
   if(tVod&&transcriptsReady&&TRANSCRIPTS[tVod]){
     const val=document.getElementById("tsearch").value.trim();
     buildTranscriptLines(tVod, val); buildMatchRail(val); } },160));
+// Entrée = occurrence suivante (Maj+Entrée = précédente), en boucle.
+document.getElementById("tsearch").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){ e.preventDefault(); gotoMatch(e.shiftKey?-1:1); } });
+document.getElementById("tmPrev").onclick=()=>gotoMatch(-1);
+document.getElementById("tmNext").onclick=()=>gotoMatch(1);
 window.addEventListener("resize",debounce(()=>{
   if(transcriptOpen()) positionTranscript(); render();   // re-fit la hauteur
 },150));
