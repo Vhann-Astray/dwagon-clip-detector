@@ -375,7 +375,7 @@ function buildCaption(cap){
   const sc=cap.score!=null?`<span class="sbsc">score ${cap.score.toFixed(2)}</span>`:"";
   const l1=`<div class="sbline1"><span class="sbt">${cap.hms}</span>${badge}${sc}</div>`;
   const txt=`<div class="sbtext">${cap.text?(cap.kw?hl(cap.text,cap.kw):esc(cap.text)):""}</div>`;
-  return l1+txt+`<div class="sbhint">clic pour aller ici</div>`; }
+  return l1+txt+`<div class="sbhint">click to jump here</div>`; }
 
 // Aperçu unifié : image storyboard + légende. cap = {hms,badge,score,text,kw}.
 function sbShow(sb, t, e, cap){
