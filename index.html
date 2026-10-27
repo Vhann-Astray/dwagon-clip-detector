@@ -237,6 +237,7 @@ let DATA=null, DET={}, active=new Set(), sortMode="chrono";
 let flat=[], cur=-1;   // flat = moments visibles dans l'ordre d'affichage
 let player=null, playerReady=false, curVid=null, pending=null;
 let selKey=null;          // clé du moment sélectionné — réappliquée après chaque re-rendu
+let playT=null, playVod=null;   // dernière position jouée (moment OU clic barre) → ouverture transcript
 const TLH=62;             // hauteur de la barre (= hauteur de l'en-tête)
 let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
@@ -481,6 +482,7 @@ function select(i){
   if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
   cur=i; const m=flat[cur]; m.el.classList.add("active");
   selKey=m.vod+"@"+m.t+"@"+m.type;   // mémorise la sélection (survit aux re-rendus de fitPage)
+  playT=m.t; playVod=m.vod;
   playAt(m.vod, m.t);
   const d=DET[m.type]||{color:"#888",emoji:"",label:m.type};
   document.getElementById("nowTitle").textContent=m.title;
@@ -507,6 +509,7 @@ function select(i){
 function seekTimeline(v, t){
   if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
   cur=-1; selKey=null;
+  playT=t; playVod=v.vod_id;
   playAt(v.vod_id, t);
   document.getElementById("nowTitle").textContent=v.title;
   document.getElementById("nowSub").innerHTML=`<span>@ ${hmsT(t)}</span>`;
@@ -590,7 +593,7 @@ function render(){
     const tb=document.createElement("button"); tb.className="gbtn"; tb.textContent="📄";
     tb.title="Open full transcript (jumps to the selected moment)";
     tb.onclick=e=>{ e.stopPropagation();
-      const ft=(cur>=0&&flat[cur]&&flat[cur].vod===v.vod_id)?flat[cur].t:null;
+      const ft=(playVod===v.vod_id)?playT:null;   // dernière position jouée sur cette VOD
       openTranscript(v.vod_id, ft); };
     gacts.appendChild(fb); gacts.appendChild(tb); head.appendChild(gacts);
     g.appendChild(head);
@@ -729,8 +732,8 @@ document.getElementById("vodOrder").onclick=function(){
 // Modale transcript : ouverture depuis la carte lecteur, fermeture, recherche interne.
 document.getElementById("nowTranscript").onclick=()=>{
   if(transcriptOpen()){ closeTranscript(); return; }   // toggle : ferme si ouvert
-  const vid=curVid||(cur>=0?flat[cur].vod:null);
-  openTranscript(vid, cur>=0?flat[cur].t:null); };
+  const vid=curVid||playVod||(cur>=0?flat[cur].vod:null);
+  openTranscript(vid, playVod===vid?playT:null); };
 document.getElementById("tmClose").onclick=closeTranscript;
 document.getElementById("tsearch").addEventListener("input",debounce(()=>{
   if(tVod&&transcriptsReady&&TRANSCRIPTS[tVod]){
