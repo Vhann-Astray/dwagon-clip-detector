@@ -194,6 +194,7 @@
     <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
     <input type="search" id="filter" placeholder="Filter VOD title…">
     <input type="search" id="kw" class="kw" placeholder="🔎 Search what she said…">
+    <button id="kwWord" class="dchip" style="--c:#22d3ee" title="Whole word — match the term only as a full word (Para ≠ Paradox)">Whole word</button>
   </span>
 </header>
 <div id="sbprev"><div class="sbimg"></div><div class="sbcap"></div></div>
@@ -261,6 +262,7 @@ let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
 let tMatches=[], tMatchIdx=-1;   // occurrences du mot cherché dans le transcript + index courant
 let tWholeWord=false;            // recherche transcript : mot entier (\b…\b)
+let kWholeWord=false;            // recherche globale : mot entier (\b…\b)
 let page=0;               // page courante (pagination des VOD)
 let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "oldest"
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
@@ -430,7 +432,7 @@ function buildCaption(cap){
     `${cap.badge.emoji||""} ${esc(cap.badge.label)}</span>`:"";
   const sc=cap.score!=null?`<span class="sbsc">score ${cap.score.toFixed(2)}</span>`:"";
   const l1=`<div class="sbline1"><span class="sbt">${cap.hms}</span>${badge}${sc}</div>`;
-  const txt=`<div class="sbtext">${cap.text?(cap.kw?hl(cap.text,cap.kw):esc(cap.text)):""}</div>`;
+  const txt=`<div class="sbtext">${cap.text?(cap.kw?hl(cap.text,cap.kw,kWholeWord):esc(cap.text)):""}</div>`;
   return l1+txt+`<div class="sbhint">click to jump here</div>`; }
 
 // Aperçu unifié : image storyboard + légende. cap = {hms,badge,score,text,kw}.
@@ -602,6 +604,7 @@ function render(){
   const minScore=parseFloat(document.getElementById("minScore").value);
   const q=document.getElementById("filter").value.trim().toLowerCase();
   const kw=kwVal();
+  document.getElementById("kw").classList.toggle("bad", !!kw && !reValid(kw,kWholeWord));
   const list=document.getElementById("list"); list.innerHTML=""; flat=[]; cur=-1;
   if(fsObserver) fsObserver.disconnect();   // les anciennes pellicules sont jetées
 
@@ -615,7 +618,7 @@ function render(){
     if(focusVod && v.vod_id!==focusVod) return false;
     if(q && !(v.title||"").toLowerCase().includes(q)) return false;
     if(noFilter){ nE+=v.items.length; return true; }   // toutes les VOD (index)
-    const shown=shownOf(v), sres=kw?matchSegs(v.vod_id,kw):[];
+    const shown=shownOf(v), sres=kw?matchSegs(v.vod_id,kw,kWholeWord):[];
     const ok = shown.length>0 || sres.length>0;
     if(ok){ nE+=shown.length; nS+=sres.length; }
     return ok;
@@ -627,7 +630,7 @@ function render(){
 
   visible.slice(page*pageSize,(page+1)*pageSize).forEach(v=>{
     const items=shownOf(v);                       // moments du filtre actif (ticks)
-    const sres = kw ? matchSegs(v.vod_id, kw) : [];
+    const sres = kw ? matchSegs(v.vod_id, kw, kWholeWord) : [];
     const g=document.createElement("div"); g.className="group"; g.dataset.vod=v.vod_id;
 
     // En-tête : compteurs COMPLETS (tous types) = vue d'ensemble permanente.
@@ -781,6 +784,8 @@ document.getElementById("minScore").addEventListener("input",e=>{
   document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2); reRender(); });
 document.getElementById("filter").addEventListener("input",reRender);
 document.getElementById("kw").addEventListener("input",debounce(reRender,160));
+document.getElementById("kwWord").onclick=function(){
+  kWholeWord=!kWholeWord; this.classList.toggle("on",kWholeWord); reRender(); };
 document.getElementById("vodOrder").onclick=function(){
   vodOrder=(vodOrder==="newest")?"oldest":"newest";
   this.textContent=(vodOrder==="newest")?"Newest first":"Oldest first"; reRender(); };
