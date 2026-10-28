@@ -28,11 +28,6 @@
   .dchip.on { color:#0b0d12; background:var(--c); border-color:var(--c); font-weight:650; }
   .dchip .dot { width:9px; height:9px; border-radius:50%; background:var(--c); }
   .dchip.on .dot { background:#0b0d12; }
-  .sort { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
-  .sort button { background:var(--panel2); border:0; border-left:1px solid var(--line);
-    color:var(--muted); font:inherit; font-size:12px; padding:6px 10px; cursor:pointer; }
-  .sort button:first-child { border-left:0; }
-  .sort button.active { background:var(--accent); color:#0b0d12; font-weight:700; }
   .filenote { background:#3a2a00; color:#ffd479; font-size:13px; padding:8px 18px;
     border-bottom:1px solid var(--line); }
   .main { display:grid; grid-template-columns:minmax(480px,55%) 1fr; gap:18px;
@@ -87,6 +82,9 @@
   /* timeline (toujours visible, même replié : vue d'ensemble) */
   .timeline { position:relative; height:62px; margin:10px 14px 12px; border-radius:8px;
     background:var(--panel2); border:1px solid var(--line); cursor:crosshair; }
+  /* mode focus : pile de rangées-timelines remplissant la hauteur dispo */
+  .tlrows { display:flex; flex-direction:column; gap:6px; margin:10px 14px 12px; }
+  .tlrows .timeline { margin:0; }
   /* pellicule de vignettes (storyboard) en fond de la timeline */
   .filmstrip { position:absolute; inset:0; display:flex; overflow:hidden;
     border-radius:inherit; z-index:0; }
@@ -185,11 +183,6 @@
   <span class="ctl" id="detFilters"></span>
   <span class="spacer"></span>
   <span class="ctl">
-    <div class="sort" id="sortCtl">
-      <button data-sort="chrono" class="active">Chronological</button>
-      <button data-sort="score_desc">Best first</button>
-      <button data-sort="score_asc">Lowest</button>
-    </div>
     <button id="vodOrder" class="dchip" title="Order of VODs in the list">Newest first</button>
     <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
     <input type="search" id="filter" placeholder="Filter VOD title…">
@@ -252,7 +245,7 @@
 <footer id="foot"></footer>
 
 <script>
-let DATA=null, DET={}, active=new Set(), sortMode="chrono";
+let DATA=null, DET={}, active=new Set();
 let flat=[], cur=-1;   // flat = moments visibles dans l'ordre d'affichage
 let player=null, playerReady=false, curVid=null, pending=null;
 let selKey=null;          // clé du moment sélectionné — réappliquée après chaque re-rendu
@@ -471,16 +464,18 @@ function sbTileStyle(sb, t, elW, elH){
     pos:"-"+(col*sb.tw*scale+offX)+"px -"+(row*sb.th*scale+offY)+"px" }; }
 
 // Construit les cellules d'une pellicule (appelé quand elle entre dans le viewport).
+// La pellicule couvre la fenêtre temporelle [_t0,_t1) de sa rangée.
 function buildFilmstrip(el){
   if(el._built) return true;
-  const sb=el._sb, dur=el._dur, W=el.clientWidth, H=el.clientHeight;
-  if(!sb||W<=0||H<=0) return false;   // pas encore de layout → réessaiera
+  const sb=el._sb, t0=el._t0||0, t1=(el._t1!=null?el._t1:(el._dur||0)), W=el.clientWidth, H=el.clientHeight;
+  const span=t1-t0;
+  if(!sb||W<=0||H<=0||span<=0) return false;   // pas encore de layout → réessaiera
   el._built=true;
   // largeur de vignette proportionnelle à la hauteur (≈ cadrage 16:9 agréable)
   const tileW=Math.max(48,Math.round(H*1.4)), N=Math.max(1,Math.round(W/tileW)), slotW=W/N;
   const frag=document.createDocumentFragment();
   for(let i=0;i<N;i++){
-    const t=((i+0.5)/N)*dur, s=sbTileStyle(sb,t,slotW,H);
+    const t=t0+((i+0.5)/N)*span, s=sbTileStyle(sb,t,slotW,H);
     const c=document.createElement("div"); c.className="fscell";
     if(s){ const safe=s.url.replace(/[\\'"\r\n]/g,ch=>"\\"+ch);
       c.style.backgroundImage="url('"+safe+"')";
@@ -488,6 +483,49 @@ function buildFilmstrip(el){
     frag.appendChild(c);
   }
   el.appendChild(frag); return true;
+}
+
+// Place un tick dans sa rangée (left relatif à la fenêtre temporelle de la rangée).
+function placeTick(row, t, tk){ tk.style.left=(100*(t-row._t0)/row._span)+"%"; row.appendChild(tk); }
+
+// Construit UNE rangée-timeline couvrant [t0,t1) : pellicule + curseur + interactions
+// (survol = aperçu du moment/frame, clic sur du vide = positionne la vidéo).
+function buildTimelineRow(v, t0, t1){
+  const span=Math.max(1e-6,t1-t0);
+  const row=document.createElement("div"); row.className="timeline";
+  row._t0=t0; row._span=span;
+  if(v.sb){ const film=document.createElement("div"); film.className="filmstrip";
+    film._sb=v.sb; film._t0=t0; film._t1=t1; row.appendChild(film); filmObserver().observe(film); }
+  const cursor=document.createElement("div"); cursor.className="tlcursor"; row.appendChild(cursor);
+  const timeAt=e=>{ const r=row.getBoundingClientRect(), x=e.clientX-r.left;
+    return { x, t:Math.max(t0,Math.min(t1,t0+x/r.width*span)) }; };
+  row.addEventListener("mousemove",e=>{ const p=timeAt(e);
+    cursor.style.display="block"; cursor.style.left=p.x+"px";
+    const m=e.target&&e.target._moment;   // survol d'un tick → infos du moment
+    let cap;
+    if(m){ const d=m.search?{emoji:"🔎",label:"Search",color:SEARCH.color}
+                           :(DET[m.type]||{emoji:"",label:m.type,color:"#888"});
+      cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null}; }
+    else cap={hms:hmsT(p.t),badge:null,score:null,text:transcriptAt(v.vod_id,p.t),kw:kwVal()||null};
+    if(v.sb||cap.text) sbShow(v.sb, m?m.t:p.t, e, cap); });
+  row.addEventListener("mouseleave",()=>{ cursor.style.display="none"; sbHide(); });
+  row.addEventListener("click",e=>{ if(e.target.classList.contains("tick")) return;
+    seekTimeline(v, timeAt(e).t); });
+  return row;
+}
+
+// Mode focus : nombre de rangées pour remplir la hauteur sous l'en-tête (62px/rangée).
+function focusRowCount(g){
+  const head=g.querySelector(".ghead"); if(!head) return 1;
+  const top=head.getBoundingClientRect().bottom;
+  if(top<=0) return 1;                      // pas de layout (ex. jsdom) → 1 rangée
+  const footer=document.querySelector("footer"), pager=document.getElementById("pager");
+  const footerH=footer?footer.getBoundingClientRect().height:0;
+  const pagerH=(pager&&pager.style.display!=="none")?pager.getBoundingClientRect().height:0;
+  const limit=window.innerHeight - footerH - pagerH - 10;
+  const rowH=TLH+6;                         // hauteur rangée + gap
+  const avail=limit - top - 22;             // marges haut/bas du conteneur .tlrows
+  return Math.max(1, Math.floor(avail/rowH));
 }
 
 // Observer partagé : ne charge les vignettes que lorsque la barre est visible
@@ -521,10 +559,6 @@ function fmtDur(s){ s=Math.round(s||0); if(!s) return "";
   const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;
   return (h?h+"h":"")+String(m).padStart(h?2:1,"0")+"m"+String(x).padStart(2,"0"); }
 function esc(s){ return (s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-function sortItems(a){ a=a.slice();
-  if(sortMode==="score_desc") a.sort((x,y)=>y.score-x.score);
-  else if(sortMode==="score_asc") a.sort((x,y)=>x.score-y.score);
-  else a.sort((x,y)=>x.t-y.t); return a; }
 
 function copyText(text, btn){ const lab=btn.textContent;
   const ok=()=>{ btn.textContent="✓ copied"; btn.classList.add("ok");
@@ -656,64 +690,50 @@ function render(){
       openTranscript(v.vod_id, ft); };
     gacts.appendChild(fb); gacts.appendChild(tb); head.appendChild(gacts);
     g.appendChild(head);
+    list.appendChild(g);   // dans le DOM dès maintenant → focusRowCount peut mesurer l'en-tête
 
-    // Barre TOUJOURS visible : pellicule en fond + ticks (filtre actif / recherche).
+    // Pellicule + ticks. Hors focus : une seule barre. En focus (📌) : plusieurs
+    // rangées à temps égal (62px chacune) pour remplir la hauteur → meilleure vue
+    // d'ensemble et ticks moins tassés (plus faciles à cliquer).
     const dur=v.duration||Math.max(...items.map(i=>i.t),...sres.map(s=>s.t),1);
-    const tl=document.createElement("div"); tl.className="timeline";
-    if(v.sb){ const film=document.createElement("div"); film.className="filmstrip";
-      film._sb=v.sb; film._dur=dur; tl.appendChild(film); filmObserver().observe(film); }
 
-    // Moments = détections (filtre actif) + recherche. Chacun : 1 tick + 1 entrée flat.
+    // Un tick par moment (détection + recherche). On crée l'élément ici ; son
+    // placement (rangée + left) est fait plus bas, une fois le nb de rangées connu.
     const moments=[];
     items.slice().sort((a,b)=>a.t-b.t).forEach(it=>{ const d=DET[it.type]||{color:"#888"};
       const tk=document.createElement("div"); tk.className="tick";
       tk.style.setProperty("--c",d.color);
-      tk.style.left=(100*it.t/dur)+"%";
       tk.style.height=(TLH*(0.3+0.7*Math.min(it.score,1)))+"px";
       tk._moment={t:it.t,hms:it.hms,score:it.score,type:it.type,text:it.text||"",search:false};
-      tl.appendChild(tk);
       moments.push({t:it.t,hms:it.hms,score:it.score,type:it.type,url:it.url,text:it.text||"",tick:tk}); });
     sres.forEach(s=>{ const tk=document.createElement("div"); tk.className="tick tsearch";
-      tk.style.setProperty("--c",SEARCH.color);
-      tk.style.left=(100*s.t/dur)+"%"; tk.style.height=TLH+"px";
+      tk.style.setProperty("--c",SEARCH.color); tk.style.height=TLH+"px";
       tk._moment={t:s.t,hms:hmsT(s.t),score:null,type:"search",text:s.x,search:true};
-      tl.appendChild(tk);
       const tt=Math.max(0,Math.round(s.t-2));
       moments.push({t:s.t,hms:hmsT(s.t),score:null,type:"search",
         url:"https://youtu.be/"+v.vod_id+"?t="+tt,text:s.x,tick:tk}); });
 
-    // Curseur + interactions : survol = aperçu (même vide), clic vide = positionne la vidéo.
-    const cursor=document.createElement("div"); cursor.className="tlcursor"; tl.appendChild(cursor);
-    const timeAt=e=>{ const r=tl.getBoundingClientRect();
-      return { x:e.clientX-r.left, t:Math.max(0,Math.min(dur,(e.clientX-r.left)/r.width*dur)) }; };
-    tl.addEventListener("mousemove",e=>{ const p=timeAt(e);
-      cursor.style.display="block"; cursor.style.left=p.x+"px";
-      const m=e.target&&e.target._moment;   // survol d'un tick → infos du moment
-      let cap;
-      if(m){ const d=m.search?{emoji:"🔎",label:"Search",color:SEARCH.color}
-                             :(DET[m.type]||{emoji:"",label:m.type,color:"#888"});
-        cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null}; }
-      else cap={hms:hmsT(p.t),badge:null,score:null,text:transcriptAt(v.vod_id,p.t),kw:kwVal()||null};
-      if(v.sb||cap.text) sbShow(v.sb, m?m.t:p.t, e, cap); });
-    tl.addEventListener("mouseleave",()=>{ cursor.style.display="none"; sbHide(); });
-    tl.addEventListener("click",e=>{ if(e.target.classList.contains("tick")) return;
-      seekTimeline(v, timeAt(e).t); });
-    g.appendChild(tl);
+    const R=(focusVod===v.vod_id)?focusRowCount(g):1;   // g est déjà dans le DOM (mesure possible)
+    if(R<=1){
+      const row=buildTimelineRow(v,0,dur);
+      moments.forEach(o=>placeTick(row,o.t,o.tick));
+      g.appendChild(row);
+    } else {
+      const wrap=document.createElement("div"); wrap.className="tlrows";
+      const rowDur=dur/R, rows=[];
+      for(let r=0;r<R;r++){ const row=buildTimelineRow(v,r*rowDur,(r+1)*rowDur);
+        rows.push(row); wrap.appendChild(row); }
+      moments.forEach(o=>{ let r=Math.floor(o.t/rowDur); if(r<0)r=0; if(r>R-1)r=R-1;
+        placeTick(rows[r],o.t,o.tick); });
+      g.appendChild(wrap);
+    }
 
-    // flat : ordre selon le tri du haut (Prev/Next). Clic d'un tick = sélection du moment.
-    moments.sort((a,b)=>{
-      if(sortMode==="chrono") return a.t-b.t;
-      const an=a.score==null, bn=b.score==null;
-      if(an!==bn) return an?1:-1;          // sans score (recherche) → à la fin
-      if(an&&bn) return a.t-b.t;
-      return sortMode==="score_desc" ? b.score-a.score : a.score-b.score;
-    });
+    // flat : ordre chronologique (Prev/Next & ←/→). Clic d'un tick = sélection.
+    moments.sort((a,b)=>a.t-b.t);
     moments.forEach(o=>{ const idx=flat.length;
       flat.push({vod:v.vod_id,title:v.title,t:o.t,hms:o.hms,score:o.score,
                  type:o.type,url:o.url,text:o.text,el:o.tick,group:g});
       o.tick.onclick=e=>{ e.stopPropagation(); select(idx); }; });
-
-    list.appendChild(g);
   });
 
   if(!nV){ const msg = kw && !transcriptsReady
@@ -752,6 +772,7 @@ function reRender(){ page=0; render(); }
 // dernière jusqu'au bas du lecteur (léger débordement toléré → remplit pile).
 function fitPage(){
   if(fitting || window.innerWidth<=980 || !DATA) return;   // mono-colonne : empilé
+  if(focusVod) return;   // focus : 1 VOD étalée en rangées, pas de pagination à ajuster
   const pc=document.querySelector(".player-col"), list=document.getElementById("list");
   if(!pc || !list) return;
   const pager=document.getElementById("pager"), footer=document.querySelector("footer");
@@ -780,7 +801,9 @@ function fitPage(){
 
 document.getElementById("prevBtn").onclick=()=>select(cur-1);
 document.getElementById("nextBtn").onclick=()=> select(cur<0?0:cur+1);
-document.getElementById("nowCopy").onclick=function(){ if(cur>=0) copyText(flat[cur].url,this); };
+document.getElementById("nowCopy").onclick=function(){   // lien courant (moment OU position cherchée)
+  const href=document.getElementById("nowOpen").href;
+  if(href && !/#$/.test(href)) copyText(href,this); };
 document.getElementById("minScore").addEventListener("input",e=>{
   document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2); reRender(); });
 document.getElementById("filter").addEventListener("input",reRender);
@@ -815,10 +838,6 @@ document.getElementById("tmNext").onclick=()=>gotoMatch(1);
 window.addEventListener("resize",debounce(()=>{
   if(transcriptOpen()) positionTranscript(); render();   // re-fit la hauteur
 },150));
-document.querySelectorAll("#sortCtl button").forEach(b=>b.addEventListener("click",()=>{
-  sortMode=b.dataset.sort;
-  document.querySelectorAll("#sortCtl button").forEach(x=>x.classList.remove("active"));
-  b.classList.add("active"); reRender(); }));
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){ if(transcriptOpen()) closeTranscript(); return; }
   if(transcriptOpen()) return;   // modale ouverte : pas de navigation ←/→
