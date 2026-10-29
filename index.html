@@ -257,6 +257,8 @@ let tMatches=[], tMatchIdx=-1;   // occurrences du mot cherché dans le transcri
 let tWholeWord=false;            // recherche transcript : mot entier (\b…\b)
 let kWholeWord=false;            // recherche globale : mot entier (\b…\b)
 let page=0;               // page courante (pagination des VOD)
+let pageBeforeFocus=0;    // page à restaurer quand on dé-pin une VOD
+let anchorVods=null;      // ids des VOD visibles avant un re-rendu → garder sa place
 let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "oldest"
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
 let fitting=false;        // garde-fou anti-récursion du calcul de hauteur
@@ -633,7 +635,7 @@ function renderFilters(){
     b.className="dchip"+(active.has(d.id)?" on":""); b.style.setProperty("--c",d.color);
     b.innerHTML=`<span class="dot"></span>${d.emoji||""} ${esc(d.label)}`;
     b.onclick=()=>{ active.has(d.id)?active.delete(d.id):active.add(d.id);
-      b.classList.toggle("on"); reRender(); }; box.appendChild(b); }); }
+      b.classList.toggle("on"); reRenderKeepingPlace(); }; box.appendChild(b); }); }
 
 function render(){
   const minScore=parseFloat(document.getElementById("minScore").value);
@@ -661,6 +663,14 @@ function render(){
   const nV=visible.length;
   // Pagination (pageSize ajusté à la hauteur après le rendu, voir fitPage).
   const pages=Math.max(1,Math.ceil(nV/pageSize));
+  // Ancrage : après un re-rendu « garder la place », on saute à la page de la
+  // 1re VOD qui était visible et qui survit au nouveau filtre (sinon page 0).
+  if(anchorVods){
+    const ids=visible.map(v=>v.vod_id); let idx=-1;
+    for(const id of anchorVods){ const i=ids.indexOf(id); if(i>=0){ idx=i; break; } }
+    page = idx>=0 ? Math.floor(idx/pageSize) : 0;
+    anchorVods=null;
+  }
   if(page>=pages) page=pages-1; if(page<0) page=0;
 
   visible.slice(page*pageSize,(page+1)*pageSize).forEach(v=>{
@@ -682,7 +692,9 @@ function render(){
     const gacts=document.createElement("div"); gacts.className="gacts";
     const fb=document.createElement("button"); fb.className="gbtn"+(focusVod===v.vod_id?" on":"");
     fb.textContent="📌"; fb.title="Focus this VOD (filter everything to it)";
-    fb.onclick=e=>{ e.stopPropagation(); focusVod=(focusVod===v.vod_id)?null:v.vod_id; reRender(); };
+    fb.onclick=e=>{ e.stopPropagation();
+      if(focusVod===v.vod_id){ focusVod=null; page=pageBeforeFocus; render(); }  // dé-pin → page d'origine
+      else { pageBeforeFocus=page; focusVod=v.vod_id; page=0; render(); } };     // pin → vue isolée
     const tb=document.createElement("button"); tb.className="gbtn"; tb.textContent="📄";
     tb.title="Open full transcript (jumps to the selected moment)";
     tb.onclick=e=>{ e.stopPropagation();
@@ -764,8 +776,14 @@ function renderPager(pages){
   next.onclick=()=>{ if(page<pages-1){ page++; render(); window.scrollTo({top:0,behavior:"smooth"}); } };
   el.appendChild(prev); el.appendChild(ind); el.appendChild(next);
 }
-// Un changement de filtre/ordre repart page 1 (évite d'atterrir hors plage).
+// Nouvelle vue (recherche/ordre) : on repart page 1.
 function reRender(){ page=0; render(); }
+// Affinage de la vue courante (filtres de type, min-score) : on garde sa place
+// en s'ancrant sur la 1re VOD visible qui survit au filtre (voir render()).
+function reRenderKeepingPlace(){
+  anchorVods=[...document.querySelectorAll("#list .group")].map(g=>g.dataset.vod);
+  render();
+}
 
 // Ajuste pageSize pour que la liste remplisse la hauteur du lecteur (sans scroll).
 // Par position : on ajoute des cartes tant qu'il reste de la place sous la
@@ -805,7 +823,8 @@ document.getElementById("nowCopy").onclick=function(){   // lien courant (moment
   const href=document.getElementById("nowOpen").href;
   if(href && !/#$/.test(href)) copyText(href,this); };
 document.getElementById("minScore").addEventListener("input",e=>{
-  document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2); reRender(); });
+  document.getElementById("minScoreVal").textContent=parseFloat(e.target.value).toFixed(2);
+  reRenderKeepingPlace(); });
 document.getElementById("filter").addEventListener("input",reRender);
 document.getElementById("kw").addEventListener("input",debounce(reRender,160));
 document.getElementById("kwWord").onclick=function(){
