@@ -93,6 +93,13 @@
   .fscell { flex:1 1 0; min-width:0; background-repeat:no-repeat; }
   .tlcursor { position:absolute; top:0; bottom:0; width:1px; margin-left:-.5px;
     background:rgba(255,255,255,.7); pointer-events:none; display:none; z-index:3; }
+  /* tête de lecture : position de lecture en cours sur la VOD jouée */
+  .playhead { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px;
+    background:#fff; box-shadow:0 0 6px #fff, 0 0 2px #000; pointer-events:none;
+    display:none; z-index:5; transition:left .22s linear; }
+  .playhead::before { content:""; position:absolute; top:-1px; left:-3px;
+    border-left:4px solid transparent; border-right:4px solid transparent;
+    border-top:5px solid #fff; }
   .tick { position:absolute; bottom:0; width:3px; margin-left:-1px; border-radius:2px;
     background:var(--c); opacity:.9; cursor:pointer; transition:transform .1s; z-index:2;
     box-shadow:0 0 3px rgba(0,0,0,.8); }
@@ -499,6 +506,7 @@ function buildTimelineRow(v, t0, t1){
   if(v.sb){ const film=document.createElement("div"); film.className="filmstrip";
     film._sb=v.sb; film._t0=t0; film._t1=t1; row.appendChild(film); filmObserver().observe(film); }
   const cursor=document.createElement("div"); cursor.className="tlcursor"; row.appendChild(cursor);
+  const ph=document.createElement("div"); ph.className="playhead"; row.appendChild(ph);
   const timeAt=e=>{ const r=row.getBoundingClientRect(), x=e.clientX-r.left;
     return { x, t:Math.max(t0,Math.min(t1,t0+x/r.width*span)) }; };
   row.addEventListener("mousemove",e=>{ const p=timeAt(e);
@@ -555,6 +563,25 @@ function playAt(vid, sec){
   if(!playerReady){ pending=[vid,sec]; return; }
   if(vid===curVid){ player.seekTo(sec, true); player.playVideo(); }   // même VOD → saut
   else { player.loadVideoById({videoId:vid, startSeconds:sec}); curVid=vid; }
+  updatePlayhead();
+}
+
+// Tête de lecture : positionne un marqueur à l'instant lu, sur la rangée de la
+// VOD en cours (il traverse les rangées en mode focus). Sans argument, lit le
+// lecteur YouTube ; (vid,t) explicites pour les tests. Masqué si la VOD jouée
+// n'est pas à l'écran, ou si rien n'est en lecture.
+function updatePlayhead(vid, t){
+  if(vid===undefined){
+    vid=curVid;
+    t=(curVid && player && player.getCurrentTime) ? (()=>{ try{ return player.getCurrentTime(); }catch(e){ return null; } })() : null;
+  }
+  document.querySelectorAll(".group .timeline").forEach(row=>{
+    const ph=row.querySelector(".playhead"); if(!ph) return;
+    const g=row.closest(".group");
+    const on = vid && t!=null && g && g.dataset.vod===vid && t>=row._t0 && t<row._t0+row._span;
+    if(on){ ph.style.left=(100*(t-row._t0)/row._span)+"%"; ph.style.display="block"; }
+    else ph.style.display="none";
+  });
 }
 
 function fmtDur(s){ s=Math.round(s||0); if(!s) return "";
@@ -865,6 +892,10 @@ document.addEventListener("keydown",e=>{
   else if(e.key==="ArrowLeft"){ e.preventDefault(); select(cur-1); } });
 
 if(location.protocol==="file:") document.getElementById("fileNote").style.display="block";
+
+// Tête de lecture : suit la position de lecture (et survit aux re-rendus car on
+// relit le DOM à chaque tick). Lecture seule, très léger (getCurrentTime + styles).
+setInterval(()=>updatePlayhead(), 250);
 
 fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; });   // filtres OFF par défaut (catalogue)
