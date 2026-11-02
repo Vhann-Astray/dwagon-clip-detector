@@ -270,6 +270,7 @@ let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "old
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
 let fitting=false;        // garde-fou anti-récursion du calcul de hauteur
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
+let tLoadedMB=0;          // Mo déjà reçus de transcripts.json (indicateur de chargement)
 let fsObserver=null;      // IntersectionObserver : pellicules chargées à l'apparition
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
 
@@ -392,7 +393,7 @@ function openTranscript(vodId, focusT){
   document.getElementById("tmWord").classList.toggle("on", tWholeWord);
   const body=document.getElementById("tmBody"), segs=TRANSCRIPTS[vodId];
   const ready = transcriptsReady && segs && segs.length;
-  if(!transcriptsReady) body.innerHTML='<div class="empty">Transcript still loading… try again in a second.</div>';
+  if(!transcriptsReady) body.innerHTML='<div class="empty" id="tmLoadMsg">Loading transcripts'+(tLoadedMB?' ('+tLoadedMB.toFixed(1)+' MB)':'')+'… opens automatically when ready.</div>';
   else if(!segs||!segs.length) body.innerHTML='<div class="empty">No transcript available for this VOD.</div>';
   else buildTranscriptLines(vodId, kwVal());
   document.getElementById("tmodal").style.display="block";
@@ -776,9 +777,9 @@ function render(){
   });
 
   if(!nV){ const msg = kw && !transcriptsReady
-      ? 'Indexing transcripts… try again in a second.'
+      ? 'Loading transcripts'+(tLoadedMB?' ('+tLoadedMB.toFixed(1)+' MB)':'')+'… search runs automatically when ready.'
       : 'No results match the current filters.';
-    list.innerHTML='<div class="empty">'+msg+'</div>'; }
+    list.innerHTML='<div class="empty" id="loadMsg">'+msg+'</div>'; }
   document.getElementById("summary").textContent=
     (focusVod?"📌 ":"")+`${nV} VOD${nV>1?"s":""} · ${nE} moments`+(kw?` · 🔎 ${nS}`:"");
   document.getElementById("counter").textContent="— / "+flat.length;
@@ -903,15 +904,42 @@ fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   document.getElementById("foot").textContent=
     "🐲💛 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · search what she said · ←/→ to step.";
   renderFilters(); render();
-  // Prefetch des transcripts en arrière-plan (ne bloque pas l'affichage initial).
-  fetch("transcripts.json?v="+Date.now()).then(r=>r.json()).then(t=>{
-    TRANSCRIPTS=t.t||{}; transcriptsReady=true;
-    if(kwVal()) render();   // rafraîchit si une recherche attend déjà
-  }).catch(()=>{});
 }).catch(err=>{
   document.getElementById("list").innerHTML=
     '<div class="empty">Could not load <b>data.json</b>. Serve this folder over http (GitHub Pages or <code>python -m http.server</code>), not file://.</div>';
   document.getElementById("summary").textContent=""; });
+
+// Transcripts : chargés EN PARALLÈLE de data.json (ne bloquent pas l'affichage),
+// pas en cascade après. 31 Mo (≈11 Mo gzip) → ça arrive en général avant même
+// que l'utilisateur lance une recherche. Sert uniquement à la recherche « what
+// she said » + la modale transcript (les extraits des moments sont déjà dans
+// data.json). On lit le flux pour afficher les Mo reçus, et la recherche/modale
+// en attente se rafraîchit toute seule à la fin.
+function setLoadMsg(){ const mb=tLoadedMB?' ('+tLoadedMB.toFixed(1)+' MB)':'';
+  const a=document.getElementById("loadMsg");
+  if(a) a.textContent='Loading transcripts'+mb+'… search runs automatically when ready.';
+  const b=document.getElementById("tmLoadMsg");
+  if(b) b.textContent='Loading transcripts'+mb+'… opens automatically when ready.'; }
+function streamJson(resp){
+  // Lecture incrémentale → on peut afficher la progression (Mo décompressés).
+  if(!resp.ok || !resp.body || !resp.body.getReader) return resp.json();
+  const reader=resp.body.getReader(), chunks=[]; let recv=0, last=0;
+  return new Promise((resolve,reject)=>{ (function pump(){
+    reader.read().then(({done,value})=>{
+      if(done){ const buf=new Uint8Array(recv); let off=0;
+        for(const c of chunks){ buf.set(c,off); off+=c.length; }
+        resolve(JSON.parse(new TextDecoder().decode(buf))); return; }
+      chunks.push(value); recv+=value.length;
+      if(recv-last>1048576){ last=recv; tLoadedMB=recv/1048576; setLoadMsg(); }  // tous les ~1 Mo
+      pump();
+    }).catch(reject); })(); });
+}
+fetch("transcripts.json?v="+Date.now()).then(streamJson).then(t=>{
+  TRANSCRIPTS=t.t||{}; transcriptsReady=true; tLoadedMB=0;
+  // Une recherche ou une modale transcript déjà ouverte se résout d'elle-même.
+  if(kwVal()) render();
+  if(transcriptOpen() && tVod) openTranscript(tVod);
+}).catch(()=>{ /* repli silencieux : le site reste utilisable sans recherche */ });
 </script>
 <script src="https://www.youtube.com/iframe_api"></script>
 </body>
