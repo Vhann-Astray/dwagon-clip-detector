@@ -549,10 +549,14 @@ function focusRowCount(g){
   const head=g.querySelector(".ghead"); if(!head) return 1;
   const top=head.getBoundingClientRect().bottom;
   if(top<=0) return 1;                      // pas de layout (ex. jsdom) → 1 rangée
-  const footer=document.querySelector("footer"), pager=document.getElementById("pager");
+  const footer=document.querySelector("footer");
   const footerH=footer?footer.getBoundingClientRect().height:0;
-  const pagerH=(pager&&pager.style.display!=="none")?pager.getBoundingClientRect().height:0;
-  const limit=window.innerHeight - footerH - pagerH - 10;
+  // En focus il n'y a QU'1 VOD → le pager est toujours masqué. On ne lit donc PAS
+  // son état dans le DOM : au moment de ce calcul (avant renderPager), il peut être
+  // encore VISIBLE depuis le rendu paginé précédent → on retirait ~une rangée selon
+  // la façon d'entrer en focus (pin/recherche depuis une liste paginée). Hauteur
+  // désormais déterministe, identique quel que soit le filtre (screams/laughter/recherche).
+  const limit=window.innerHeight - footerH - 10;
   const rowH=TLH+6;                         // hauteur rangée + gap
   const avail=limit - top - 22;             // marges haut/bas du conteneur .tlrows
   return Math.max(1, Math.floor(avail/rowH));
