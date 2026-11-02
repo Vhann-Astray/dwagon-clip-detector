@@ -183,6 +183,13 @@
   .tloadfill { height:100%; width:0; background:linear-gradient(90deg,var(--accent),#22d3ee);
     border-radius:6px; transition:width .25s ease; }
   .tloadsub { color:var(--muted); font-size:12px; margin-top:8px; }
+  /* Barre globale dans l'en-tête (téléchargement de TOUS les transcripts). */
+  .tgload { display:inline-flex; align-items:center; gap:8px; }
+  .tgtxt { color:var(--muted); font-size:12px; white-space:nowrap; }
+  .tgbar { width:120px; height:6px; border-radius:5px; background:var(--panel2);
+    border:1px solid var(--line); overflow:hidden; }
+  .tgfill { display:block; height:100%; width:0; border-radius:5px;
+    background:linear-gradient(90deg,var(--accent),#22d3ee); transition:width .25s ease; }
   footer { color:var(--muted); font-size:12px; padding:16px 18px; border-top:1px solid var(--line);
     max-width:2000px; margin:0 auto; }
   kbd { background:var(--panel2); border:1px solid var(--line); border-radius:4px;
@@ -194,6 +201,11 @@
   <h1>🐲💛 SillyDwagonDetector</h1>
   <span class="meta" id="summary">Loading…</span>
   <span class="ctl" id="detFilters"></span>
+  <span class="spacer"></span>
+  <span class="tgload" id="tgload" style="display:none" title="All transcripts load in the background for search">
+    <span class="tgtxt" id="tgtxt">Downloading all transcripts…</span>
+    <span class="tgbar"><span class="tgfill" id="tgfill"></span></span>
+  </span>
   <span class="spacer"></span>
   <span class="ctl">
     <button id="vodOrder" class="dchip" title="Order of VODs in the list">Newest first</button>
@@ -938,7 +950,21 @@ function loadBarHTML(){
 }
 function setLoadMsg(){ const html=loadBarHTML();
   const a=document.getElementById("loadMsg"); if(a) a.innerHTML=html;
-  const b=document.getElementById("tmLoadMsg"); if(b) b.innerHTML=html; }
+  const b=document.getElementById("tmLoadMsg"); if(b) b.innerHTML=html;
+  renderGlobalLoad(); }
+// Barre GLOBALE de l'en-tête : indique le téléchargement de TOUS les transcripts
+// (visible même sans recherche). Masquée une fois prête ou sur erreur.
+function renderGlobalLoad(){
+  const el=document.getElementById("tgload"); if(!el) return;
+  if(transcriptsReady){ el.style.display="none"; return; }
+  el.style.display="inline-flex";
+  const total=tLoadTotal||TBYTES||0, recv=tLoadedBytes||0;
+  const pct=total?Math.min(100,Math.round(100*recv/total)):0;
+  let eta=""; if(total && tRate>0 && recv<total){ eta=" · ~"+Math.max(1,Math.ceil((total-recv)/tRate))+"s"; }
+  const txt=document.getElementById("tgtxt"), fill=document.getElementById("tgfill");
+  if(txt) txt.textContent="Downloading all transcripts… "+(total?(pct+"%"+eta):((recv/1048576).toFixed(1)+" MB"));
+  if(fill) fill.style.width=pct+"%";
+}
 function streamJson(resp){
   // Lecture incrémentale → progression (octets décompressés) + débit pour l'ETA.
   if(!resp.ok || !resp.body || !resp.body.getReader) return resp.json();
@@ -955,12 +981,15 @@ function streamJson(resp){
       pump();
     }).catch(reject); })(); });
 }
+renderGlobalLoad();   // affiche la barre d'en-tête dès le départ (avant le 1er octet)
 fetch("transcripts.json?v="+Date.now()).then(streamJson).then(t=>{
   TRANSCRIPTS=t.t||{}; transcriptsReady=true; tLoadedBytes=0; tRate=0;
+  renderGlobalLoad();   // prête → masque la barre d'en-tête
   // Une recherche ou une modale transcript déjà ouverte se résout d'elle-même.
   if(kwVal()) render();
   if(transcriptOpen() && tVod) openTranscript(tVod);
-}).catch(()=>{ /* repli silencieux : le site reste utilisable sans recherche */ });
+}).catch(()=>{ /* repli silencieux : le site reste utilisable sans recherche */
+  const el=document.getElementById("tgload"); if(el) el.style.display="none"; });
 </script>
 <script src="https://www.youtube.com/iframe_api"></script>
 </body>
