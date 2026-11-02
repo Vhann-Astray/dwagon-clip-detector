@@ -177,6 +177,12 @@
   .pager button:disabled { opacity:.4; cursor:default; }
   .pager .pind { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
   .empty { color:var(--muted); padding:48px; text-align:center; }
+  .tloadtxt { color:var(--text); font-size:14px; margin-bottom:10px; }
+  .tloadbar { height:8px; border-radius:6px; background:var(--panel2); border:1px solid var(--line);
+    overflow:hidden; max-width:360px; margin:0 auto; }
+  .tloadfill { height:100%; width:0; background:linear-gradient(90deg,var(--accent),#22d3ee);
+    border-radius:6px; transition:width .25s ease; }
+  .tloadsub { color:var(--muted); font-size:12px; margin-top:8px; }
   footer { color:var(--muted); font-size:12px; padding:16px 18px; border-top:1px solid var(--line);
     max-width:2000px; margin:0 auto; }
   kbd { background:var(--panel2); border:1px solid var(--line); border-radius:4px;
@@ -270,7 +276,8 @@ let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "old
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
 let fitting=false;        // garde-fou anti-récursion du calcul de hauteur
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
-let tLoadedMB=0;          // Mo déjà reçus de transcripts.json (indicateur de chargement)
+const TBYTES=31204301;   // taille DÉCOMPRESSÉE de transcripts.json (injectée à la génération)
+let tLoadedBytes=0, tLoadTotal=0, tRate=0;   // chargement : octets reçus, total estimé, débit (o/s)
 let fsObserver=null;      // IntersectionObserver : pellicules chargées à l'apparition
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
 
@@ -393,7 +400,7 @@ function openTranscript(vodId, focusT){
   document.getElementById("tmWord").classList.toggle("on", tWholeWord);
   const body=document.getElementById("tmBody"), segs=TRANSCRIPTS[vodId];
   const ready = transcriptsReady && segs && segs.length;
-  if(!transcriptsReady) body.innerHTML='<div class="empty" id="tmLoadMsg">Loading transcripts'+(tLoadedMB?' ('+tLoadedMB.toFixed(1)+' MB)':'')+'… opens automatically when ready.</div>';
+  if(!transcriptsReady) body.innerHTML='<div class="empty" id="tmLoadMsg">'+loadBarHTML()+'</div>';
   else if(!segs||!segs.length) body.innerHTML='<div class="empty">No transcript available for this VOD.</div>';
   else buildTranscriptLines(vodId, kwVal());
   document.getElementById("tmodal").style.display="block";
@@ -776,10 +783,9 @@ function render(){
       o.tick.onclick=e=>{ e.stopPropagation(); select(idx); }; });
   });
 
-  if(!nV){ const msg = kw && !transcriptsReady
-      ? 'Loading transcripts'+(tLoadedMB?' ('+tLoadedMB.toFixed(1)+' MB)':'')+'… search runs automatically when ready.'
-      : 'No results match the current filters.';
-    list.innerHTML='<div class="empty" id="loadMsg">'+msg+'</div>'; }
+  if(!nV){
+    if(kw && !transcriptsReady) list.innerHTML='<div class="empty" id="loadMsg">'+loadBarHTML()+'</div>';
+    else list.innerHTML='<div class="empty">No results match the current filters.</div>'; }
   document.getElementById("summary").textContent=
     (focusVod?"📌 ":"")+`${nV} VOD${nV>1?"s":""} · ${nE} moments`+(kw?` · 🔎 ${nS}`:"");
   document.getElementById("counter").textContent="— / "+flat.length;
@@ -915,27 +921,42 @@ fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
 // she said » + la modale transcript (les extraits des moments sont déjà dans
 // data.json). On lit le flux pour afficher les Mo reçus, et la recherche/modale
 // en attente se rafraîchit toute seule à la fin.
-function setLoadMsg(){ const mb=tLoadedMB?' ('+tLoadedMB.toFixed(1)+' MB)':'';
-  const a=document.getElementById("loadMsg");
-  if(a) a.textContent='Loading transcripts'+mb+'… search runs automatically when ready.';
-  const b=document.getElementById("tmLoadMsg");
-  if(b) b.textContent='Loading transcripts'+mb+'… opens automatically when ready.'; }
+// Barre de chargement : % + temps restant estimé + Mo reçus. Le total vient de
+// la taille embarquée (TBYTES, décompressée) ou du Content-Length (si non gzip,
+// ex. localhost). Sans total connu → simple compteur de Mo (pas de barre).
+function loadBarHTML(){
+  const total=tLoadTotal||TBYTES||0, recv=tLoadedBytes||0;
+  const pct=total?Math.min(100,Math.round(100*recv/total)):0;
+  let eta="";
+  if(total && tRate>0 && recv<total){ const s=Math.max(1,Math.ceil((total-recv)/tRate)); eta=" · ~"+s+"s left"; }
+  const mb=(recv/1048576).toFixed(1)+(total?(" / "+(total/1048576).toFixed(1)):"")+" MB";
+  const head=total?("Loading transcripts… "+pct+"%"+eta)
+                  :("Loading transcripts… "+(recv/1048576).toFixed(1)+" MB");
+  const bar=total?('<div class="tloadbar"><div class="tloadfill" style="width:'+pct+'%"></div></div>'):"";
+  return '<div class="tloadtxt">'+head+'</div>'+bar+
+         '<div class="tloadsub">'+mb+' · search runs automatically when ready</div>';
+}
+function setLoadMsg(){ const html=loadBarHTML();
+  const a=document.getElementById("loadMsg"); if(a) a.innerHTML=html;
+  const b=document.getElementById("tmLoadMsg"); if(b) b.innerHTML=html; }
 function streamJson(resp){
-  // Lecture incrémentale → on peut afficher la progression (Mo décompressés).
+  // Lecture incrémentale → progression (octets décompressés) + débit pour l'ETA.
   if(!resp.ok || !resp.body || !resp.body.getReader) return resp.json();
-  const reader=resp.body.getReader(), chunks=[]; let recv=0, last=0;
+  tLoadTotal = TBYTES || +(resp.headers.get("content-length")||0) || 0;
+  const reader=resp.body.getReader(), chunks=[]; let recv=0, last=0; const t0=performance.now();
   return new Promise((resolve,reject)=>{ (function pump(){
     reader.read().then(({done,value})=>{
       if(done){ const buf=new Uint8Array(recv); let off=0;
         for(const c of chunks){ buf.set(c,off); off+=c.length; }
         resolve(JSON.parse(new TextDecoder().decode(buf))); return; }
-      chunks.push(value); recv+=value.length;
-      if(recv-last>1048576){ last=recv; tLoadedMB=recv/1048576; setLoadMsg(); }  // tous les ~1 Mo
+      chunks.push(value); recv+=value.length; tLoadedBytes=recv;
+      const el=(performance.now()-t0)/1000; if(el>0) tRate=recv/el;
+      if(recv-last>262144){ last=recv; setLoadMsg(); }   // MAJ de la barre ~tous les 256 Ko
       pump();
     }).catch(reject); })(); });
 }
 fetch("transcripts.json?v="+Date.now()).then(streamJson).then(t=>{
-  TRANSCRIPTS=t.t||{}; transcriptsReady=true; tLoadedMB=0;
+  TRANSCRIPTS=t.t||{}; transcriptsReady=true; tLoadedBytes=0; tRate=0;
   // Une recherche ou une modale transcript déjà ouverte se résout d'elle-même.
   if(kwVal()) render();
   if(transcriptOpen() && tVod) openTranscript(tVod);
