@@ -197,12 +197,16 @@
   .tloadfill { height:100%; width:0; background:linear-gradient(90deg,var(--accent),#22d3ee);
     border-radius:6px; transition:width .25s ease; }
   .tloadsub { color:var(--muted); font-size:12px; margin-top:8px; }
-  /* Barre globale dans l'en-tête (téléchargement de TOUS les transcripts). */
-  .tgload { display:inline-flex; align-items:center; gap:8px; }
-  .tgtxt { color:var(--muted); font-size:12px; white-space:nowrap; }
-  .tgbar { width:120px; height:6px; border-radius:5px; background:var(--panel2);
-    border:1px solid var(--line); overflow:hidden; }
-  .tgfill { display:block; height:100%; width:0; border-radius:5px;
+  /* Progression globale (téléchargement de TOUS les transcripts) : HORS du flux de
+     l'en-tête (fine ligne sur son bord bas + étiquette flottante dessous). Dans le
+     flux, elle faisait passer l'en-tête sur 2 lignes le temps du chargement → la
+     page calculait 1 carte de moins, puis sautait de 4 à 5 cartes à la fin. */
+  .tgload { position:absolute; left:0; right:0; top:100%; height:0; display:flex;
+    justify-content:center; pointer-events:none; z-index:31; }
+  .tgtxt { color:var(--muted); font-size:11px; white-space:nowrap; margin-top:5px;
+    background:var(--panel2); border:1px solid var(--line); border-radius:999px; padding:2px 10px; }
+  .tgbar { position:absolute; left:0; right:0; top:-2px; height:2px; overflow:hidden; }
+  .tgfill { display:block; height:100%; width:0;
     background:linear-gradient(90deg,var(--accent),#22d3ee); transition:width .25s ease; }
   footer { color:var(--muted); font-size:12px; padding:16px 18px; border-top:1px solid var(--line);
     max-width:2000px; margin:0 auto; }
@@ -348,13 +352,13 @@ function matchSegs(vid, kw, whole){ const arr=TRANSCRIPTS[vid]; if(!arr) return 
   for(let i=0;i<arr.length;i++){ re.lastIndex=0; if(re.test(arr[i][1])){
     out.push({t:arr[i][0], x:arr[i][1]}); if(out.length>=60) break; } }
   return out; }
-// Recherche dans le chat Twitch (pseudo ou message). t = instant de la VOD qui a
-// provoqué le message (heure du message − retard du chat).
+// Recherche dans le chat Twitch (pseudo ou message). t = heure du message telle
+// qu'affichée dans le log (= son apparition dans le chat incrusté à la vidéo).
 function matchChat(vid, kw, whole){ const arr=CHAT[vid]; if(!arr) return [];
   const re=makeRe(kw,whole); if(!re) return []; const out=[];
   for(let i=0;i<arr.length;i++){ const m=arr[i];
     re.lastIndex=0; let ok=re.test(m[2]); if(!ok){ re.lastIndex=0; ok=re.test(m[1]); }
-    if(ok){ out.push({t:Math.max(0,m[0]-CHAT_LAT), x:m[1]+": "+m[2], chat:true});
+    if(ok){ out.push({t:m[0], x:m[1]+": "+m[2], chat:true});
       if(out.length>=60) break; } }
   return out; }
 // Résultats de recherche selon la portée choisie (transcript / chat / les deux).
@@ -416,8 +420,10 @@ function buildTranscriptLines(vodId, kw){
   segs.forEach(s=>{ const t=s[0], b=document.createElement("button"); b.className="tline"; b.dataset.t=t;
     const tx=chat?`<span class="tu" style="color:${chatColor(s[3])}">${H(s[1])}</span>${H(s[2])}`:H(s[1]);
     b.innerHTML=`<span class="tt">${hmsT(t)}</span><span class="tx">${tx}</span>`;
-    // chat : on saute un peu AVANT l'action qui a provoqué le message (retard du chat).
-    b.onclick=()=>{ playAt(vodId, Math.max(0, chat?t-CHAT_LAT-3:t-1));
+    // Saut 1 s avant la ligne : le message apparaît alors dans le chat incrusté.
+    b.onclick=()=>{ const s=Math.max(0, t-1);
+      playT=s; playVod=vodId;   // position courante → l'autre onglet s'y alignera
+      playAt(vodId, s);
       body.querySelectorAll(".tline.cur").forEach(e=>e.classList.remove("cur")); b.classList.add("cur"); };
     frag.appendChild(b); });
   body.appendChild(frag);
@@ -439,7 +445,9 @@ function scrollTranscriptTo(t){ const body=document.getElementById("tmBody");
   // chat : t des messages = apparition dans la fenêtre de chat incrustée à la
   // vidéo → le log se cale sur ce qu'on voit à l'écran à cet instant.
   let target=lines[0];   // repli : rien avant la cible → 1re ligne (jamais de .cur périmé)
-  lines.forEach(ln=>{ if(parseFloat(ln.dataset.t)<=t) target=ln; });
+  // +1,5 s : un clic sur une ligne place la vidéo 1 s AVANT elle → en revenant
+  // sur cet onglet (ou en changeant d'onglet), on retombe sur la ligne cliquée.
+  lines.forEach(ln=>{ if(parseFloat(ln.dataset.t)<=t+1.5) target=ln; });
   scrollBodyToLine(target); }
 // Rail vertical : un tick par ligne contenant le mot cherché → clic = saut.
 function buildMatchRail(kw){
@@ -631,7 +639,8 @@ function buildTimelineRow(v, t0, t1){
       cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null}; }
     else cap={hms:hmsT(p.t),badge:null,score:null,text:transcriptAt(v.vod_id,p.t),kw:kwVal()||null};
     // Réactions du chat à cet instant (quelques messages, si la courbe est affichée).
-    cap.chat=(v.chat&&showChat)?chatAt(v.vod_id, m?m.t:p.t, 3):[];
+    // (pas sur un tick de résultat chat : la carte montre déjà ce message).
+    cap.chat=(v.chat&&showChat&&!(m&&m.type==="chat"))?chatAt(v.vod_id, m?m.t:p.t, 3):[];
     if(v.sb||cap.text||cap.chat.length) sbShow(v.sb, m?m.t:p.t, e, cap); });
   row.addEventListener("mouseleave",()=>{ cursor.style.display="none"; sbHide(); });
   row.addEventListener("click",e=>{ if(e.target.classList.contains("tick")) return;
@@ -846,13 +855,13 @@ function render(){
     const tb=document.createElement("button"); tb.className="gbtn"; tb.textContent="📄";
     tb.title="Open full transcript (jumps to the selected moment)";
     tb.onclick=e=>{ e.stopPropagation();
-      const ft=(playVod===v.vod_id)?playT:null;   // dernière position jouée sur cette VOD
+      const ft=posOf(v.vod_id);   // position en cours / dernière position sur cette VOD
       tMode="t"; openTranscript(v.vod_id, ft); };
     gacts.appendChild(fb); gacts.appendChild(tb);
     if(v.chat){ const cb=document.createElement("button"); cb.className="gbtn"; cb.textContent="💬";
       cb.title="Open the Twitch chat replay ("+v.chat.n+" messages, synced to this VOD)";
       cb.onclick=e=>{ e.stopPropagation(); tMode="c";
-        openTranscript(v.vod_id, (playVod===v.vod_id)?playT:null); };
+        openTranscript(v.vod_id, posOf(v.vod_id)); };
       gacts.appendChild(cb); }
     head.appendChild(gacts);
     g.appendChild(head);
@@ -991,7 +1000,7 @@ document.getElementById("vodOrder").onclick=function(){
 document.getElementById("nowTranscript").onclick=()=>{
   if(transcriptOpen()){ closeTranscript(); return; }   // toggle : ferme si ouvert
   const vid=curVid||playVod||(cur>=0?flat[cur].vod:null);
-  openTranscript(vid, playVod===vid?playT:null); };
+  openTranscript(vid, posOf(vid)); };
 document.getElementById("tmClose").onclick=closeTranscript;
 // Relance la recherche transcript : surligne, (ré)indexe, signale une regex invalide.
 function runTranscriptSearch(){
@@ -1008,7 +1017,15 @@ document.getElementById("tsearch").addEventListener("keydown",e=>{
 document.getElementById("tmWord").onclick=function(){
   tWholeWord=!tWholeWord; this.classList.toggle("on",tWholeWord); runTranscriptSearch(); };
 // Onglets de la modale : bascule transcript ↔ chat sur la même VOD et la même position.
-function setModalMode(m){ tMode=m; if(tVod) openTranscript(tVod, playVod===tVod?playT:null); }
+// Position à laquelle aligner la modale pour une VOD : instant réel du lecteur
+// si cette VOD est en cours, sinon la dernière position choisie (moment, clic
+// pellicule, clic sur une ligne transcript/chat), sinon rien.
+function posOf(vid){
+  if(vid && vid===curVid && playerReady && player && player.getCurrentTime){
+    try{ const t=player.getCurrentTime(); if(t>0) return t; }catch(e){} }
+  return playVod===vid ? playT : null;
+}
+function setModalMode(m){ tMode=m; if(tVod) openTranscript(tVod, posOf(tVod)); }
 document.getElementById("tmTabT").onclick=()=>setModalMode("t");
 document.getElementById("tmTabC").onclick=()=>setModalMode("c");
 document.getElementById("chatToggle").onclick=function(){
