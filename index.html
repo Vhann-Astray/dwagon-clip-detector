@@ -106,6 +106,20 @@
   .tick:hover { transform:scaleX(2.4); opacity:1; }
   .tick.active { transform:scaleX(2.6); opacity:1; z-index:4;
     box-shadow:0 0 7px var(--c), 0 0 3px #fff; }
+  /* courbe d'activité du chat Twitch (sous les ticks, au-dessus de la pellicule) */
+  .chatgraph { position:absolute; left:0; right:0; bottom:0; height:52%; width:100%;
+    pointer-events:none; z-index:1; overflow:visible; }
+  .chatgraph path { fill:rgba(169,112,255,.30); stroke:#c4a5ff; stroke-width:1.3;
+    vector-effect:non-scaling-stroke; stroke-linejoin:round; }
+  .tick.tchat { box-shadow:0 0 4px #a970ff; }
+  #sbprev .sbchat { margin-top:5px; padding-top:5px; border-top:1px solid var(--line);
+    font-size:11.5px; line-height:1.35; }
+  #sbprev .sbchat:empty { display:none; }
+  #sbprev .sbchat div { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #sbprev .sbchat b { font-weight:650; }
+  .tline .tu { font-weight:650; margin-right:6px; }
+  .mtabs { display:flex; gap:4px; flex:none; }
+  #tsearch { min-width:120px; flex:0 1 200px; }   /* laisse de la place au titre */
   .nowtext { font-style:italic; }
   /* recherche plein-texte */
   input[type=search].kw { min-width:210px; border-color:#1e5a66; }
@@ -211,7 +225,9 @@
     <button id="vodOrder" class="dchip" title="Order of VODs in the list">Newest first</button>
     <label>Min <input type="range" id="minScore" min="0" max="1" step="0.05" value="0"><span id="minScoreVal">0.00</span></label>
     <input type="search" id="filter" placeholder="Filter VOD title…">
+    <button id="chatToggle" class="dchip on" style="--c:#a970ff;display:none" title="Twitch chat activity graph on the filmstrips (messages per 10 s, shifted by the ~4 s chat delay)">💬 Chat</button>
     <input type="search" id="kw" class="kw" placeholder="🔎 Search what she said…">
+    <button id="kwScope" class="dchip" style="--c:#22d3ee;display:none" title="Where to search: what she said (transcripts), the Twitch chat, or both">in: Transcript</button>
     <button id="kwWord" class="dchip" style="--c:#22d3ee" title="Whole word — match the term only as a full word (Para ≠ Paradox)">Whole word</button>
   </span>
 </header>
@@ -225,6 +241,10 @@
   <div class="mbox">
     <div class="mhead">
       <span class="mtitle" id="tmTitle">Transcript</span>
+      <span class="mtabs" id="tmTabs" style="display:none">
+        <button id="tmTabT" class="mnavbtn on" title="What she said (YouTube transcript)">📄 Transcript</button>
+        <button id="tmTabC" class="mnavbtn" title="Twitch chat replay, synced to the YouTube VOD">💬 Chat</button>
+      </span>
       <input type="search" id="tsearch" class="kw" placeholder="🔎 Find in transcript (regex)…" title="Regex supported — e.g. Para\b matches ‘Para’ but not ‘Paradox’">
       <span class="mnav">
         <button id="tmWord" class="mnavbtn" title="Whole word — match the term only as a full word (Para ≠ Paradox)">Whole word</button>
@@ -288,10 +308,16 @@ let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "old
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
 let fitting=false;        // garde-fou anti-récursion du calcul de hauteur
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
-const TBYTES=31204301;   // taille DÉCOMPRESSÉE de transcripts.json (injectée à la génération)
+const TBYTES=31435428;   // taille DÉCOMPRESSÉE de transcripts.json (injectée à la génération)
 let tLoadedBytes=0, tLoadTotal=0, tRate=0;   // chargement : octets reçus, total estimé, débit (o/s)
 let fsObserver=null;      // IntersectionObserver : pellicules chargées à l'apparition
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
+const CHATDET={id:"chat",label:"Chat",emoji:"💬",color:"#a970ff"};
+let CHAT={}, chatReady=false;    // chat Twitch synchronisé : {vod: [[t, pseudo, texte, couleur]]}
+let CHAT_LAT=4;                  // s : retard du chat sur l'action (data.json → v.chat.lat)
+let showChat=localStorage.getItem("chatGraph")!=="0";   // courbe d'activité affichée
+let kwScope="t";                 // portée de la recherche : "t" transcript, "c" chat, "tc" les deux
+let tMode="t";                   // modale : "t" transcript, "c" chat
 
 // Moments d'une VOD à afficher : filtres opt-in → aucun type coché = AUCUN
 // moment (ni pastille ni tick). Les indicateurs n'apparaissent qu'à l'activation.
@@ -322,6 +348,55 @@ function matchSegs(vid, kw, whole){ const arr=TRANSCRIPTS[vid]; if(!arr) return 
   for(let i=0;i<arr.length;i++){ re.lastIndex=0; if(re.test(arr[i][1])){
     out.push({t:arr[i][0], x:arr[i][1]}); if(out.length>=60) break; } }
   return out; }
+// Recherche dans le chat Twitch (pseudo ou message). t = instant de la VOD qui a
+// provoqué le message (heure du message − retard du chat).
+function matchChat(vid, kw, whole){ const arr=CHAT[vid]; if(!arr) return [];
+  const re=makeRe(kw,whole); if(!re) return []; const out=[];
+  for(let i=0;i<arr.length;i++){ const m=arr[i];
+    re.lastIndex=0; let ok=re.test(m[2]); if(!ok){ re.lastIndex=0; ok=re.test(m[1]); }
+    if(ok){ out.push({t:Math.max(0,m[0]-CHAT_LAT), x:m[1]+": "+m[2], chat:true});
+      if(out.length>=60) break; } }
+  return out; }
+// Résultats de recherche selon la portée choisie (transcript / chat / les deux).
+function searchHits(vid, kw, whole){ if(!kw) return [];
+  const a=kwScope.includes("t")?matchSegs(vid,kw,whole):[];
+  const b=kwScope.includes("c")?matchChat(vid,kw,whole):[];
+  return a.concat(b); }
+function searchLoading(){ return (kwScope.includes("t")&&!transcriptsReady)||(kwScope.includes("c")&&!chatReady); }
+// Messages provoqués par l'instant t de la VOD (postés dans [t+lat−1, t+lat+8]).
+function chatAt(vid, t, n){ const arr=CHAT[vid]; if(!arr||!arr.length) return [];
+  const a=t+CHAT_LAT-1, b=t+CHAT_LAT+8; let lo=0, hi=arr.length;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(arr[mid][0]<a) lo=mid+1; else hi=mid; }
+  const out=[]; for(let i=lo;i<arr.length&&arr[i][0]<=b&&out.length<n;i++) out.push(arr[i]);
+  return out; }
+function chatColor(c){ return /^#[0-9a-f]{6}$/i.test(c||"")?c:"#c4a5ff"; }
+// Courbe d'activité du chat sur [t0,t1). Lissée (~30 s), normalisée au 98e
+// centile de la VOD (un pic isolé n'écrase pas le reste), puis ^1.6 : le
+// bavardage de fond reste bas, les emballements du chat ressortent.
+function chatSmooth(v){ if(v._cs) return v._cs;
+  const c=v.chat.c, w=[1,2,3,2,1], s=new Array(c.length);
+  for(let i=0;i<c.length;i++){ let a=0,n=0;
+    for(let k=-2;k<=2;k++){ const j=i+k; if(j>=0&&j<c.length){ a+=c[j]*w[k+2]; n+=w[k+2]; } }
+    s[i]=a/n; }
+  const srt=s.slice().sort((a,b)=>a-b);
+  v._cmx=Math.max(0.5, srt[Math.floor(0.98*(srt.length-1))]);
+  return v._cs=s; }
+function chatGraph(v, t0, t1){
+  const c=v.chat&&v.chat.c, b=(v.chat&&v.chat.b)||10, span=t1-t0;
+  if(!c||!c.length||span<=0) return null;
+  const s=chatSmooth(v), mx=v._cmx;
+  const i0=Math.max(0,Math.floor(t0/b)), i1=Math.min(c.length,Math.ceil(t1/b));
+  const k=Math.max(1,Math.ceil((i1-i0)/320));   // ≤ ~320 points par rangée (max par groupe)
+  let d="M0,100";
+  for(let i=i0;i<i1;i+=k){ let m=0; for(let j=i;j<Math.min(i1,i+k);j++) m=Math.max(m,s[j]);
+    const x=Math.max(0,Math.min(1000,1000*((i+k/2)*b-t0)/span));
+    d+=" L"+x.toFixed(1)+","+(100-100*Math.pow(Math.min(1,m/mx),1.6)).toFixed(1); }
+  d+=" L1000,100 Z";
+  const ns="http://www.w3.org/2000/svg", svg=document.createElementNS(ns,"svg");
+  svg.setAttribute("class","chatgraph"); svg.setAttribute("viewBox","0 0 1000 100");
+  svg.setAttribute("preserveAspectRatio","none");
+  const p=document.createElementNS(ns,"path"); p.setAttribute("d",d); svg.appendChild(p);
+  return svg; }
 function hl(raw, kw, whole){ const re=makeRe(kw,whole); if(!re) return esc(raw);
   let out="", i=0, m; re.lastIndex=0;
   while((m=re.exec(raw))!==null){
@@ -331,12 +406,18 @@ function hl(raw, kw, whole){ const re=makeRe(kw,whole); if(!re) return esc(raw);
   return out; }
 
 // --- Modale transcript : transcript complet d'une VOD, clic sur une ligne = seek ---
+// Lignes de la modale selon l'onglet : transcript [t, texte] ou chat [t, pseudo, texte, couleur].
+function modalLines(vodId){ return (tMode==="c"?CHAT[vodId]:TRANSCRIPTS[vodId])||[]; }
+function modalLoaded(){ return tMode==="c"?chatReady:transcriptsReady; }
 function buildTranscriptLines(vodId, kw){
-  const segs=TRANSCRIPTS[vodId]||[], body=document.getElementById("tmBody");
+  const chat=tMode==="c", segs=modalLines(vodId), body=document.getElementById("tmBody");
+  const H=s=>kw?hl(s,kw,tWholeWord):esc(s);
   body.innerHTML=""; const frag=document.createDocumentFragment();
-  segs.forEach(([t,x])=>{ const b=document.createElement("button"); b.className="tline"; b.dataset.t=t;
-    b.innerHTML=`<span class="tt">${hmsT(t)}</span><span class="tx">${kw?hl(x,kw,tWholeWord):esc(x)}</span>`;
-    b.onclick=()=>{ playAt(vodId, Math.max(0,t-1));
+  segs.forEach(s=>{ const t=s[0], b=document.createElement("button"); b.className="tline"; b.dataset.t=t;
+    const tx=chat?`<span class="tu" style="color:${chatColor(s[3])}">${H(s[1])}</span>${H(s[2])}`:H(s[1]);
+    b.innerHTML=`<span class="tt">${hmsT(t)}</span><span class="tx">${tx}</span>`;
+    // chat : on saute un peu AVANT l'action qui a provoqué le message (retard du chat).
+    b.onclick=()=>{ playAt(vodId, Math.max(0, chat?t-CHAT_LAT-3:t-1));
       body.querySelectorAll(".tline.cur").forEach(e=>e.classList.remove("cur")); b.classList.add("cur"); };
     frag.appendChild(b); });
   body.appendChild(frag);
@@ -355,6 +436,7 @@ function scrollBodyToLine(ln){ const body=document.getElementById("tmBody");
   animScroll(body, body.scrollTop + (br.top-pr.top) - body.clientHeight/2 + br.height/2, 170); }
 function scrollTranscriptTo(t){ const body=document.getElementById("tmBody");
   const lines=body.querySelectorAll(".tline"); if(!lines.length) return;
+  if(tMode==="c") t+=CHAT_LAT;   // chat : messages provoqués par cet instant
   let target=lines[0];   // repli : rien avant la cible → 1re ligne (jamais de .cur périmé)
   lines.forEach(ln=>{ if(parseFloat(ln.dataset.t)<=t) target=ln; });
   scrollBodyToLine(target); }
@@ -405,15 +487,22 @@ function openTranscript(vodId, focusT){
   if(!vodId) return;
   const v=DATA.vods.find(x=>x.vod_id===vodId);
   tVod=vodId;
+  if(!(v&&v.chat)) tMode="t";   // pas de chat pour cette VOD → transcript
+  document.getElementById("tmTabs").style.display=(v&&v.chat)?"flex":"none";
+  document.getElementById("tmTabT").classList.toggle("on", tMode==="t");
+  document.getElementById("tmTabC").classList.toggle("on", tMode==="c");
   document.getElementById("tmTitle").textContent=v?v.title:vodId;
   const ts=document.getElementById("tsearch");
+  ts.placeholder=tMode==="c"?"🔎 Find in chat (regex)…":"🔎 Find in transcript (regex)…";
   ts.value=kwVal();   // pré-remplit le mot cherché
   ts.classList.toggle("bad", !!kwVal() && !reValid(kwVal(), tWholeWord));
   document.getElementById("tmWord").classList.toggle("on", tWholeWord);
-  const body=document.getElementById("tmBody"), segs=TRANSCRIPTS[vodId];
-  const ready = transcriptsReady && segs && segs.length;
-  if(!transcriptsReady) body.innerHTML='<div class="empty" id="tmLoadMsg">'+loadBarHTML()+'</div>';
-  else if(!segs||!segs.length) body.innerHTML='<div class="empty">No transcript available for this VOD.</div>';
+  const body=document.getElementById("tmBody"), segs=modalLines(vodId);
+  const ready = modalLoaded() && segs.length;
+  if(!modalLoaded()) body.innerHTML=tMode==="c"?'<div class="empty">Loading chat…</div>'
+                                               :'<div class="empty" id="tmLoadMsg">'+loadBarHTML()+'</div>';
+  else if(!segs.length) body.innerHTML='<div class="empty">'+(tMode==="c"?"No Twitch chat for this VOD."
+                                                        :"No transcript available for this VOD.")+'</div>';
   else buildTranscriptLines(vodId, kwVal());
   document.getElementById("tmodal").style.display="block";
   document.getElementById("nowTranscript").classList.add("on");
@@ -456,7 +545,9 @@ function buildCaption(cap){
   const sc=cap.score!=null?`<span class="sbsc">score ${cap.score.toFixed(2)}</span>`:"";
   const l1=`<div class="sbline1"><span class="sbt">${cap.hms}</span>${badge}${sc}</div>`;
   const txt=`<div class="sbtext">${cap.text?(cap.kw?hl(cap.text,cap.kw,kWholeWord):esc(cap.text)):""}</div>`;
-  return l1+txt+`<div class="sbhint">click to jump here</div>`; }
+  const chat=`<div class="sbchat">${(cap.chat||[]).map(m=>
+    `<div><b style="color:${chatColor(m[3])}">${esc(m[1])}</b> ${esc(m[2])}</div>`).join("")}</div>`;
+  return l1+txt+chat+`<div class="sbhint">click to jump here</div>`; }
 
 // Aperçu unifié : image storyboard + légende. cap = {hms,badge,score,text,kw}.
 function sbShow(sb, t, e, cap){
@@ -464,7 +555,7 @@ function sbShow(sb, t, e, cap){
   const img=prev.querySelector(".sbimg");
   prev.style.display="block";          // visible d'abord → clientWidth correct
   const s=sb?sbStyle(sb,t):null;
-  if(!s && !(cap && (cap.text||cap.badge))){ prev.style.display="none"; return; }
+  if(!s && !(cap && (cap.text||cap.badge||(cap.chat&&cap.chat.length)))){ prev.style.display="none"; return; }
   if(s){ const safeUrl=s.url.replace(/[\\'"\r\n]/g,c=>"\\"+c);
     img.style.display="block"; img.style.backgroundImage="url('"+safeUrl+"')";
     img.style.backgroundSize=s.size; img.style.backgroundPosition=s.pos; }
@@ -525,6 +616,7 @@ function buildTimelineRow(v, t0, t1){
   row._t0=t0; row._span=span;
   if(v.sb){ const film=document.createElement("div"); film.className="filmstrip";
     film._sb=v.sb; film._t0=t0; film._t1=t1; row.appendChild(film); filmObserver().observe(film); }
+  if(v.chat && showChat){ const cg=chatGraph(v,t0,t1); if(cg) row.appendChild(cg); }
   const cursor=document.createElement("div"); cursor.className="tlcursor"; row.appendChild(cursor);
   const ph=document.createElement("div"); ph.className="playhead"; row.appendChild(ph);
   const timeAt=e=>{ const r=row.getBoundingClientRect(), x=e.clientX-r.left;
@@ -537,7 +629,9 @@ function buildTimelineRow(v, t0, t1){
                            :(DET[m.type]||{emoji:"",label:m.type,color:"#888"});
       cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null}; }
     else cap={hms:hmsT(p.t),badge:null,score:null,text:transcriptAt(v.vod_id,p.t),kw:kwVal()||null};
-    if(v.sb||cap.text) sbShow(v.sb, m?m.t:p.t, e, cap); });
+    // Réactions du chat à cet instant (quelques messages, si la courbe est affichée).
+    cap.chat=(v.chat&&showChat)?chatAt(v.vod_id, m?m.t:p.t, 3):[];
+    if(v.sb||cap.text||cap.chat.length) sbShow(v.sb, m?m.t:p.t, e, cap); });
   row.addEventListener("mouseleave",()=>{ cursor.style.display="none"; sbHide(); });
   row.addEventListener("click",e=>{ if(e.target.classList.contains("tick")) return;
     seekTimeline(v, timeAt(e).t); });
@@ -706,7 +800,7 @@ function render(){
     if(focusVod && v.vod_id!==focusVod) return false;
     if(q && !(v.title||"").toLowerCase().includes(q)) return false;
     if(noFilter){ nE+=v.items.length; return true; }   // toutes les VOD (index)
-    const shown=shownOf(v), sres=kw?matchSegs(v.vod_id,kw,kWholeWord):[];
+    const shown=shownOf(v), sres=searchHits(v.vod_id,kw,kWholeWord);
     const ok = shown.length>0 || sres.length>0;
     if(ok){ nE+=shown.length; nS+=sres.length; }
     return ok;
@@ -726,14 +820,16 @@ function render(){
 
   visible.slice(page*pageSize,(page+1)*pageSize).forEach(v=>{
     const items=shownOf(v);                       // moments du filtre actif (ticks)
-    const sres = kw ? matchSegs(v.vod_id, kw, kWholeWord) : [];
+    const sres = searchHits(v.vod_id, kw, kWholeWord);
     const g=document.createElement("div"); g.className="group"; g.dataset.vod=v.vod_id;
 
     // En-tête : compteurs COMPLETS (tous types) = vue d'ensemble permanente.
     const byType={}; v.items.forEach(it=>byType[it.type]=(byType[it.type]||0)+1);
     let counts=DATA.detectors.filter(d=>byType[d.id]).map(d=>
       `<span class="cc" style="color:${d.color}">${d.emoji||""} ${byType[d.id]}</span>`).join("");
-    if(kw) counts+=`<span class="cc" style="color:${SEARCH.color}">🔎 ${sres.length}</span>`;
+    if(kw){ const nc=sres.filter(s=>s.chat).length;
+      if(kwScope.includes("t")) counts+=`<span class="cc" style="color:${SEARCH.color}">🔎 ${sres.length-nc}</span>`;
+      if(kwScope.includes("c")) counts+=`<span class="cc" style="color:${CHATDET.color}">💬 ${nc}</span>`; }
     const meta=[v.date,fmtDur(v.duration)].filter(Boolean).join("  ·  ");
     const thumb=v.thumbnail?`<img class="thumb" src="${esc(v.thumbnail)}" loading="lazy" alt="">`:"";
     const head=document.createElement("div"); head.className="ghead";
@@ -750,8 +846,14 @@ function render(){
     tb.title="Open full transcript (jumps to the selected moment)";
     tb.onclick=e=>{ e.stopPropagation();
       const ft=(playVod===v.vod_id)?playT:null;   // dernière position jouée sur cette VOD
-      openTranscript(v.vod_id, ft); };
-    gacts.appendChild(fb); gacts.appendChild(tb); head.appendChild(gacts);
+      tMode="t"; openTranscript(v.vod_id, ft); };
+    gacts.appendChild(fb); gacts.appendChild(tb);
+    if(v.chat){ const cb=document.createElement("button"); cb.className="gbtn"; cb.textContent="💬";
+      cb.title="Open the Twitch chat replay ("+v.chat.n+" messages, synced to this VOD)";
+      cb.onclick=e=>{ e.stopPropagation(); tMode="c";
+        openTranscript(v.vod_id, (playVod===v.vod_id)?playT:null); };
+      gacts.appendChild(cb); }
+    head.appendChild(gacts);
     g.appendChild(head);
     list.appendChild(g);   // dans le DOM dès maintenant → focusRowCount peut mesurer l'en-tête
 
@@ -769,11 +871,13 @@ function render(){
       tk.style.height=(TLH*(0.3+0.7*Math.min(it.score,1)))+"px";
       tk._moment={t:it.t,hms:it.hms,score:it.score,type:it.type,text:it.text||"",search:false};
       moments.push({t:it.t,hms:it.hms,score:it.score,type:it.type,url:it.url,text:it.text||"",tick:tk}); });
-    sres.forEach(s=>{ const tk=document.createElement("div"); tk.className="tick tsearch";
-      tk.style.setProperty("--c",SEARCH.color); tk.style.height=TLH+"px";
-      tk._moment={t:s.t,hms:hmsT(s.t),score:null,type:"search",text:s.x,search:true};
+    sres.forEach(s=>{ const tk=document.createElement("div");
+      const type=s.chat?"chat":"search";
+      tk.className="tick "+(s.chat?"tchat":"tsearch");
+      tk.style.setProperty("--c",s.chat?CHATDET.color:SEARCH.color); tk.style.height=TLH+"px";
+      tk._moment={t:s.t,hms:hmsT(s.t),score:null,type,text:s.x,search:!s.chat};
       const tt=Math.max(0,Math.round(s.t-2));
-      moments.push({t:s.t,hms:hmsT(s.t),score:null,type:"search",
+      moments.push({t:s.t,hms:hmsT(s.t),score:null,type,
         url:"https://youtu.be/"+v.vod_id+"?t="+tt,text:s.x,tick:tk}); });
 
     const R=(focusVod===v.vod_id)?focusRowCount(g):1;   // g est déjà dans le DOM (mesure possible)
@@ -800,10 +904,10 @@ function render(){
   });
 
   if(!nV){
-    if(kw && !transcriptsReady) list.innerHTML='<div class="empty" id="loadMsg">'+loadBarHTML()+'</div>';
+    if(kw && searchLoading()) list.innerHTML='<div class="empty" id="loadMsg">'+loadBarHTML()+'</div>';
     else list.innerHTML='<div class="empty">No results match the current filters.</div>'; }
   document.getElementById("summary").textContent=
-    (focusVod?"📌 ":"")+`${nV} VOD${nV>1?"s":""} · ${nE} moments`+(kw?` · 🔎 ${nS}`:"");
+    (focusVod?"📌 ":"")+`${nV} VOD${nV>1?"s":""} · ${nE} moments`+(kw?` · ${kwScope==="c"?"💬":"🔎"} ${nS}`:"");
   document.getElementById("counter").textContent="— / "+flat.length;
   document.getElementById("prevBtn").disabled=true; document.getElementById("nextBtn").disabled=flat.length===0;
   renderPager(pages);
@@ -891,7 +995,7 @@ document.getElementById("tmClose").onclick=closeTranscript;
 // Relance la recherche transcript : surligne, (ré)indexe, signale une regex invalide.
 function runTranscriptSearch(){
   const el=document.getElementById("tsearch");
-  if(!(tVod&&transcriptsReady&&TRANSCRIPTS[tVod])){ el.classList.remove("bad"); return; }
+  if(!(tVod&&modalLoaded()&&modalLines(tVod).length)){ el.classList.remove("bad"); return; }
   const val=el.value.trim();
   el.classList.toggle("bad", !!val && !reValid(val, tWholeWord));
   buildTranscriptLines(tVod, val); buildMatchRail(val);
@@ -902,6 +1006,19 @@ document.getElementById("tsearch").addEventListener("keydown",e=>{
   if(e.key==="Enter"){ e.preventDefault(); gotoMatch(e.shiftKey?-1:1); } });
 document.getElementById("tmWord").onclick=function(){
   tWholeWord=!tWholeWord; this.classList.toggle("on",tWholeWord); runTranscriptSearch(); };
+// Onglets de la modale : bascule transcript ↔ chat sur la même VOD et la même position.
+function setModalMode(m){ tMode=m; if(tVod) openTranscript(tVod, playVod===tVod?playT:null); }
+document.getElementById("tmTabT").onclick=()=>setModalMode("t");
+document.getElementById("tmTabC").onclick=()=>setModalMode("c");
+document.getElementById("chatToggle").onclick=function(){
+  showChat=!showChat; this.classList.toggle("on",showChat);
+  localStorage.setItem("chatGraph", showChat?"1":"0"); reRenderKeepingPlace(); };
+document.getElementById("kwScope").onclick=function(){
+  kwScope={t:"c",c:"tc",tc:"t"}[kwScope];
+  this.textContent={t:"in: Transcript",c:"in: Chat",tc:"in: Both"}[kwScope];
+  document.getElementById("kw").placeholder={t:"🔎 Search what she said…",
+    c:"💬 Search the Twitch chat…",tc:"🔎 Search what she said + chat…"}[kwScope];
+  reRender(); };
 document.getElementById("tmPrev").onclick=()=>gotoMatch(-1);
 document.getElementById("tmNext").onclick=()=>gotoMatch(1);
 window.addEventListener("resize",debounce(()=>{
@@ -922,7 +1039,13 @@ setInterval(()=>updatePlayhead(), 250);
 
 fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
   DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; });   // filtres OFF par défaut (catalogue)
-  DET["search"]=SEARCH;
+  DET["search"]=SEARCH; DET["chat"]=CHATDET;
+  // Chat Twitch : boutons visibles seulement si au moins une VOD est synchronisée.
+  const cv=d.vods.find(v=>v.chat);
+  if(cv){ CHAT_LAT=cv.chat.lat||4;
+    const ct=document.getElementById("chatToggle"); ct.style.display=""; ct.classList.toggle("on",showChat);
+    document.getElementById("kwScope").style.display="";
+    loadChat(); }
   document.getElementById("foot").textContent=
     "🐲💛 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · search what she said · ←/→ to step.";
   renderFilters(); render();
@@ -984,6 +1107,16 @@ function streamJson(resp){
       if(recv-last>262144){ last=recv; setLoadMsg(); }   // MAJ de la barre ~tous les 256 Ko
       pump();
     }).catch(reject); })(); });
+}
+// Chat Twitch (léger : ~1 Mo) : log du chat + recherche dans le chat. Chargé
+// seulement si data.json contient des VOD synchronisées.
+function loadChat(){
+  fetch("chat.json?v="+Date.now()).then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+  .then(c=>{ CHAT=c.c||{}; chatReady=true;
+    if(kwVal() && kwScope.includes("c")) render();
+    if(transcriptOpen() && tVod && tMode==="c") openTranscript(tVod); })
+  .catch(()=>{ chatReady=true;   // repli : le site reste utilisable sans le chat
+    if(transcriptOpen() && tVod && tMode==="c") openTranscript(tVod); });
 }
 renderGlobalLoad();   // affiche la barre d'en-tête dès le départ (avant le 1er octet)
 fetch("transcripts.json?v="+Date.now()).then(streamJson).then(t=>{
