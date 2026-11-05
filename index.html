@@ -786,7 +786,10 @@ function select(i){
     `<span class="pill" style="background:${d.color}">${d.emoji||""} ${esc(d.label)}</span>`+
     `<span>@ ${m.hms}</span>`+
     (m.score!=null?`<span>score ${m.score.toFixed(2)}</span>`:"");
-  document.getElementById("nowText").textContent=m.text?("“"+m.text+"”"):"";
+  // Message du chat : emotes en images (richChat échappe le texte) ; sinon texte brut.
+  const nt=document.getElementById("nowText");
+  if(m.type==="chat" && m.text) nt.innerHTML="“"+richChat(m.text)+"”";
+  else nt.textContent=m.text?("“"+m.text+"”"):"";
   document.getElementById("nowOpen").href=m.url;
   document.getElementById("counter").textContent=(cur+1)+" / "+flat.length;
   document.getElementById("prevBtn").disabled=cur<=0;
