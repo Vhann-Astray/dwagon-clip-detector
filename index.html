@@ -436,7 +436,8 @@ function scrollBodyToLine(ln){ const body=document.getElementById("tmBody");
   animScroll(body, body.scrollTop + (br.top-pr.top) - body.clientHeight/2 + br.height/2, 170); }
 function scrollTranscriptTo(t){ const body=document.getElementById("tmBody");
   const lines=body.querySelectorAll(".tline"); if(!lines.length) return;
-  if(tMode==="c") t+=CHAT_LAT;   // chat : messages provoqués par cet instant
+  // chat : t des messages = apparition dans la fenêtre de chat incrustée à la
+  // vidéo → le log se cale sur ce qu'on voit à l'écran à cet instant.
   let target=lines[0];   // repli : rien avant la cible → 1re ligne (jamais de .cur périmé)
   lines.forEach(ln=>{ if(parseFloat(ln.dataset.t)<=t) target=ln; });
   scrollBodyToLine(target); }
@@ -1024,6 +1025,13 @@ document.getElementById("tmNext").onclick=()=>gotoMatch(1);
 window.addEventListener("resize",debounce(()=>{
   if(transcriptOpen()) positionTranscript(); render();   // re-fit la hauteur
 },150));
+// L'en-tête change de hauteur sans redimensionnement de fenêtre (barre de
+// chargement des transcripts qui apparaît puis disparaît, boutons du chat…) :
+// il passe sur 2 lignes puis revient à 1 → la place des cartes change. Sans ça,
+// le 1er affichage gardait 1 carte de moins jusqu'au changement de page.
+if("ResizeObserver" in window){ let headH=0; const hd=document.querySelector("header");
+  new ResizeObserver(debounce(()=>{ const h=hd.offsetHeight;
+    if(h!==headH){ headH=h; if(DATA) fitPage(); } },120)).observe(hd); }
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){ if(transcriptOpen()) closeTranscript(); return; }
   if(transcriptOpen()) return;   // modale ouverte : pas de navigation ←/→
