@@ -118,6 +118,9 @@
   #sbprev .sbchat div { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #sbprev .sbchat b { font-weight:650; }
   .tline .tu { font-weight:650; margin-right:6px; }
+  /* emotes du chat (Twitch / 7TV / BTTV) à la hauteur du texte */
+  img.emote { height:1.75em; width:auto; vertical-align:middle; margin:-.35em .08em; }
+  #sbprev .sbchat img.emote { height:1.5em; margin:-.3em .05em; }
   .mtabs { display:flex; gap:4px; flex:none; }
   #tsearch { min-width:120px; flex:0 1 200px; }   /* laisse de la place au titre */
   .nowtext { font-style:italic; }
@@ -318,6 +321,7 @@ let fsObserver=null;      // IntersectionObserver : pellicules chargées à l'ap
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
 const CHATDET={id:"chat",label:"Chat",emoji:"💬",color:"#a970ff"};
 let CHAT={}, chatReady=false;    // chat Twitch synchronisé : {vod: [[t, pseudo, texte, couleur]]}
+let EMOTES={};                   // emotes du chat : nom → clé « t:id » / « 7:id » / « b:id »
 let CHAT_LAT=4;                  // s : retard du chat sur l'action (data.json → v.chat.lat)
 let showChat=localStorage.getItem("chatGraph")!=="0";   // courbe d'activité affichée
 let kwScope="t";                 // portée de la recherche : "t" transcript, "c" chat, "tc" les deux
@@ -373,7 +377,49 @@ function chatAt(vid, t, n){ const arr=CHAT[vid]; if(!arr||!arr.length) return []
   while(lo<hi){ const mid=(lo+hi)>>1; if(arr[mid][0]<a) lo=mid+1; else hi=mid; }
   const out=[]; for(let i=lo;i<arr.length&&arr[i][0]<=b&&out.length<n;i++) out.push(arr[i]);
   return out; }
-function chatColor(c){ return /^#[0-9a-f]{6}$/i.test(c||"")?c:"#c4a5ff"; }
+// Couleur de pseudo Twitch lisible sur le fond sombre : comme Twitch en mode
+// sombre, une couleur trop foncée (ex. bleu pur) est mélangée à du blanc jusqu'à
+// un contraste de 4,5:1 (WCAG AA) avec le panneau ; les autres restent intactes.
+const _chatCol={};
+function _lum(r,g,b){ const f=c=>{ c/=255; return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4); };
+  return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); }
+const _BG_LUM=_lum(0x1e,0x22,0x2b);   // --panel2, fond des lignes du chat
+function chatColor(c){
+  if(!/^#[0-9a-f]{6}$/i.test(c||"")) return "#c4a5ff";
+  if(_chatCol[c]) return _chatCol[c];
+  let r=parseInt(c.slice(1,3),16), g=parseInt(c.slice(3,5),16), b=parseInt(c.slice(5,7),16);
+  for(let i=0;i<20 && (_lum(r,g,b)+0.05)/(_BG_LUM+0.05)<4.5;i++){
+    r+=(255-r)*0.12; g+=(255-g)*0.12; b+=(255-b)*0.12; }
+  return _chatCol[c]="#"+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,"0")).join(""); }
+// --- Emotes : clé compacte → image du CDN (1x + 2x pour les écrans haute densité) ---
+function emoteSrc(k, x2){ const id=encodeURIComponent(k.slice(2));
+  if(k[0]==="t") return "https://static-cdn.jtvnw.net/emoticons/v2/"+id+"/default/dark/"+(x2?"2.0":"1.0");
+  if(k[0]==="7") return "https://cdn.7tv.app/emote/"+id+"/"+(x2?"2x":"1x")+".webp";
+  if(k[0]==="b") return "https://cdn.betterttv.net/emote/"+id+"/"+(x2?"2x":"1x");
+  return ""; }
+function emoteImg(name, k){ const n=esc(name);
+  return `<img class="emote" src="${emoteSrc(k,false)}" srcset="${emoteSrc(k,true)} 2x" `+
+         `alt="${n}" title="${n}" loading="lazy" decoding="async">`; }
+// Texte échappé avec <mark> sur les parties [a,b) qui recoupent les occurrences ms.
+function markRange(raw, a, b, ms){ let out="", p=a;
+  for(const [s,e] of ms){ if(e<=p||s>=b) continue;
+    const s2=Math.max(s,p), e2=Math.min(e,b);
+    out+=esc(raw.slice(p,s2))+"<mark>"+esc(raw.slice(s2,e2))+"</mark>"; p=e2; }
+  return out+esc(raw.slice(p,b)); }
+// Message du chat en HTML : les mots-emotes deviennent des images, le mot cherché
+// est surligné (un mot-emote qui correspond à la recherche reste en texte surligné,
+// pour qu'on voie l'occurrence).
+function richChat(raw, kw, whole){
+  const ms=[], re=kw?makeRe(kw,whole):null;
+  if(re){ re.lastIndex=0; let m;
+    while((m=re.exec(raw))!==null){ if(!m[0].length){ re.lastIndex++; continue; }
+      ms.push([m.index, m.index+m[0].length]); } }
+  let out="", i=0, t; const tok=/\S+/g;
+  while((t=tok.exec(raw))!==null){ const a=t.index, b=a+t[0].length, k=EMOTES[t[0]];
+    out+=markRange(raw, i, a, ms);
+    out+=(k && !ms.some(r=>r[0]<b && r[1]>a)) ? emoteImg(t[0], k) : markRange(raw, a, b, ms);
+    i=b; }
+  return out+markRange(raw, i, raw.length, ms); }
 // Courbe d'activité du chat sur [t0,t1). Lissée (~30 s), normalisée au 98e
 // centile de la VOD (un pic isolé n'écrase pas le reste), puis ^1.6 : le
 // bavardage de fond reste bas, les emballements du chat ressortent.
@@ -418,7 +464,7 @@ function buildTranscriptLines(vodId, kw){
   const H=s=>kw?hl(s,kw,tWholeWord):esc(s);
   body.innerHTML=""; const frag=document.createDocumentFragment();
   segs.forEach(s=>{ const t=s[0], b=document.createElement("button"); b.className="tline"; b.dataset.t=t;
-    const tx=chat?`<span class="tu" style="color:${chatColor(s[3])}">${H(s[1])}</span>${H(s[2])}`:H(s[1]);
+    const tx=chat?`<span class="tu" style="color:${chatColor(s[3])}">${H(s[1])}</span>${richChat(s[2],kw,tWholeWord)}`:H(s[1]);
     b.innerHTML=`<span class="tt">${hmsT(t)}</span><span class="tx">${tx}</span>`;
     // Saut 1 s avant la ligne : le message apparaît alors dans le chat incrusté.
     b.onclick=()=>{ const s=Math.max(0, t-1);
@@ -553,9 +599,10 @@ function buildCaption(cap){
     `${cap.badge.emoji||""} ${esc(cap.badge.label)}</span>`:"";
   const sc=cap.score!=null?`<span class="sbsc">score ${cap.score.toFixed(2)}</span>`:"";
   const l1=`<div class="sbline1"><span class="sbt">${cap.hms}</span>${badge}${sc}</div>`;
-  const txt=`<div class="sbtext">${cap.text?(cap.kw?hl(cap.text,cap.kw,kWholeWord):esc(cap.text)):""}</div>`;
+  const txt=`<div class="sbtext">${!cap.text?"":cap.rich?richChat(cap.text,cap.kw,kWholeWord)
+    :(cap.kw?hl(cap.text,cap.kw,kWholeWord):esc(cap.text))}</div>`;
   const chat=`<div class="sbchat">${(cap.chat||[]).map(m=>
-    `<div><b style="color:${chatColor(m[3])}">${esc(m[1])}</b> ${esc(m[2])}</div>`).join("")}</div>`;
+    `<div><b style="color:${chatColor(m[3])}">${esc(m[1])}</b> ${richChat(m[2])}</div>`).join("")}</div>`;
   return l1+txt+chat+`<div class="sbhint">click to jump here</div>`; }
 
 // Aperçu unifié : image storyboard + légende. cap = {hms,badge,score,text,kw}.
@@ -636,7 +683,7 @@ function buildTimelineRow(v, t0, t1){
     let cap;
     if(m){ const d=m.search?{emoji:"🔎",label:"Search",color:SEARCH.color}
                            :(DET[m.type]||{emoji:"",label:m.type,color:"#888"});
-      cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null}; }
+      cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null,rich:m.type==="chat"}; }
     else cap={hms:hmsT(p.t),badge:null,score:null,text:transcriptAt(v.vod_id,p.t),kw:kwVal()||null};
     // Réactions du chat à cet instant (quelques messages, si la courbe est affichée).
     // (pas sur un tick de résultat chat : la carte montre déjà ce message).
@@ -1137,7 +1184,7 @@ function streamJson(resp){
 // seulement si data.json contient des VOD synchronisées.
 function loadChat(){
   fetch("chat.json?v="+Date.now()).then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
-  .then(c=>{ CHAT=c.c||{}; chatReady=true;
+  .then(c=>{ CHAT=c.c||{}; EMOTES=c.e||{}; chatReady=true;
     if(kwVal() && kwScope.includes("c")) render();
     if(transcriptOpen() && tVod && tMode==="c") openTranscript(tVod); })
   .catch(()=>{ chatReady=true;   // repli : le site reste utilisable sans le chat
