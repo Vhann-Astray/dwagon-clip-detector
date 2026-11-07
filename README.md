@@ -23,6 +23,16 @@ Each detected moment links straight to the exact spot in the YouTube VOD.
   a **search** supporting a **simple regex** and a **"Whole word"** toggle
   (`Para\b` matches "Para" but not "Paradox"); Enter / Prev-Next cycle through
   matches.
+- **Search across all VODs** (top search box): what she said, the Twitch chat
+  (usernames and messages), or both (`in:` button). Every hit shows as a tick on
+  the filmstrip, over the whole VOD, with the real total in the VOD header.
+- **Twitch chat** (streams are simulcast on Twitch, whose VODs expire after 14
+  days, so the chat is archived and synced to the YouTube VOD by audio):
+  - **activity graph** on the filmstrip (`💬 Chat` toggles it), peaks aligned on
+    the action that caused them; hovering also shows the chat's reactions;
+  - **chat replay** (💬 on a VOD, or the Chat tab of the transcript panel), with
+    Twitch, 7TV and BTTV emotes, timed like the chat box shown in the stream;
+    click a message to jump there.
 - **Type filters** (screams, laughter…), **minimum-score filter**, **VOD-title
   search**, and newest/oldest ordering.
 - **Links**: open in a new tab ↗ or copy the timestamped link ⧉.

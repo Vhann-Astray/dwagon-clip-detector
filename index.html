@@ -353,7 +353,7 @@ function makeRe(kw, whole){ if(!kw) return null;
 function matchSegs(vid, kw, whole){ const arr=TRANSCRIPTS[vid]; if(!arr) return [];
   const re=makeRe(kw,whole); if(!re) return []; const out=[];
   for(let i=0;i<arr.length;i++){ re.lastIndex=0; if(re.test(arr[i][1])){
-    out.push({t:arr[i][0], x:arr[i][1]}); if(out.length>=60) break; } }
+    out.push({t:arr[i][0], x:arr[i][1]}); } }
   return out; }
 // Recherche dans le chat Twitch (pseudo ou message). t = heure du message telle
 // qu'affichée dans le log (= son apparition dans le chat incrusté à la vidéo).
@@ -361,8 +361,7 @@ function matchChat(vid, kw, whole){ const arr=CHAT[vid]; if(!arr) return [];
   const re=makeRe(kw,whole); if(!re) return []; const out=[];
   for(let i=0;i<arr.length;i++){ const m=arr[i];
     re.lastIndex=0; let ok=re.test(m[2]); if(!ok){ re.lastIndex=0; ok=re.test(m[1]); }
-    if(ok){ out.push({t:m[0], x:m[1]+": "+m[2], chat:true});
-      if(out.length>=60) break; } }
+    if(ok) out.push({t:m[0], x:m[1]+": "+m[2], chat:true}); }
   return out; }
 // Résultats de recherche selon la portée choisie (transcript / chat / les deux).
 function searchHits(vid, kw, whole){ if(!kw) return [];
@@ -855,11 +854,13 @@ function render(){
   // Aucun type coché ET pas de recherche = catalogue : toutes les VOD.
   const noFilter = !active.size && !kw;   // catalogue : aucun filtre actif
   let nE=0,nS=0;
+  const hitsOf=new Map();   // résultats de recherche par VOD, calculés une seule fois
   const visible=ordered.filter(v=>{
     if(focusVod && v.vod_id!==focusVod) return false;
     if(q && !(v.title||"").toLowerCase().includes(q)) return false;
     if(noFilter){ nE+=v.items.length; return true; }   // toutes les VOD (index)
     const shown=shownOf(v), sres=searchHits(v.vod_id,kw,kWholeWord);
+    hitsOf.set(v.vod_id,sres);
     const ok = shown.length>0 || sres.length>0;
     if(ok){ nE+=shown.length; nS+=sres.length; }
     return ok;
@@ -879,7 +880,7 @@ function render(){
 
   visible.slice(page*pageSize,(page+1)*pageSize).forEach(v=>{
     const items=shownOf(v);                       // moments du filtre actif (ticks)
-    const sres = searchHits(v.vod_id, kw, kWholeWord);
+    const sres = hitsOf.get(v.vod_id) || [];
     const g=document.createElement("div"); g.className="group"; g.dataset.vod=v.vod_id;
 
     // En-tête : compteurs COMPLETS (tous types) = vue d'ensemble permanente.
@@ -919,7 +920,9 @@ function render(){
     // Pellicule + ticks. Hors focus : une seule barre. En focus (📌) : plusieurs
     // rangées à temps égal (62px chacune) pour remplir la hauteur → meilleure vue
     // d'ensemble et ticks moins tassés (plus faciles à cliquer).
-    const dur=v.duration||Math.max(...items.map(i=>i.t),...sres.map(s=>s.t),1);
+    // (boucle plutôt que Math.max(...) : des milliers de résultats dépasseraient
+    // la limite d'arguments d'un appel)
+    const dur=v.duration||items.concat(sres).reduce((m,o)=>Math.max(m,o.t),1);
 
     // Un tick par moment (détection + recherche). On crée l'élément ici ; son
     // placement (rangée + left) est fait plus bas, une fois le nb de rangées connu.
