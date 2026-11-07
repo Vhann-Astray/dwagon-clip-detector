@@ -37,9 +37,12 @@ only provides timestamps.
 ## Repository contents
 
 - `index.html` — the page (static, served by GitHub Pages).
-- `data.json` — the data (VODs + detected moments), reloaded on every visit.
-- `transcripts.json` — consolidated auto-transcript segments, loaded in the
-  background to power the transcript search.
+- `index.json` — the VODs and their detected moments, checked for updates on
+  every visit.
+- `text/YYYY-MM.json` — one pack per month: consolidated auto-transcript
+  segments and the synced Twitch chat. All packs load in the background to power
+  the search, and your browser keeps them, so on your next visit only the months
+  that changed are downloaded again.
 
 Data is regenerated locally and the JSON files are updated — no private data is
 published here (see `.gitignore`).

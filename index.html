@@ -315,14 +315,13 @@ let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "old
 let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
 let fitting=false;        // garde-fou anti-récursion du calcul de hauteur
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
-const TBYTES=31435428;   // taille DÉCOMPRESSÉE de transcripts.json (injectée à la génération)
-let tLoadedBytes=0, tLoadTotal=0, tRate=0;   // chargement : octets reçus, total estimé, débit (o/s)
+let tLoadedBytes=0, tLoadTotal=0, tRate=0;   // chargement des packs : octets reçus, total (index.json), débit (o/s)
 let fsObserver=null;      // IntersectionObserver : pellicules chargées à l'apparition
 const SEARCH={id:"search",label:"Search",emoji:"🔎",color:"#22d3ee"};
 const CHATDET={id:"chat",label:"Chat",emoji:"💬",color:"#a970ff"};
 let CHAT={}, chatReady=false;    // chat Twitch synchronisé : {vod: [[t, pseudo, texte, couleur]]}
 let EMOTES={};                   // emotes du chat : nom → clé « t:id » / « 7:id » / « b:id »
-let CHAT_LAT=4;                  // s : retard du chat sur l'action (data.json → v.chat.lat)
+let CHAT_LAT=4;                  // s : retard du chat sur l'action (index.json → v.chat.lat)
 let showChat=localStorage.getItem("chatGraph")!=="0";   // courbe d'activité affichée
 let kwScope="t";                 // portée de la recherche : "t" transcript, "c" chat, "tc" les deux
 let tMode="t";                   // modale : "t" transcript, "c" chat
@@ -1112,34 +1111,45 @@ if(location.protocol==="file:") document.getElementById("fileNote").style.displa
 // relit le DOM à chaque tick). Lecture seule, très léger (getCurrentTime + styles).
 setInterval(()=>updatePlayhead(), 250);
 
-fetch("data.json?v="+Date.now()).then(r=>r.json()).then(d=>{
+// Index : revalidé à chaque visite (ETag → 304 sans téléchargement s'il n'a
+// pas changé depuis la dernière publication).
+const NOCACHE={cache:"no-cache"};
+fetch("index.json",NOCACHE).then(r=>r.json()).then(d=>{
+  // Moments compacts [type, t, score, texte] → objets ; url/hms recalculés
+  // exactement comme le pipeline (youtu.be/<id>?t=<t>, H:MM:SS).
+  d.vods.forEach(v=>{ v.items=v.items.map(([type,t,score,text])=>
+    ({type, t, score, text, hms:hmsT(t), url:"https://youtu.be/"+v.vod_id+"?t="+t})); });
+  EMOTES=d.emotes||{};
   DATA=d; d.detectors.forEach(x=>{ DET[x.id]=x; });   // filtres OFF par défaut (catalogue)
   DET["search"]=SEARCH; DET["chat"]=CHATDET;
   // Chat Twitch : boutons visibles seulement si au moins une VOD est synchronisée.
   const cv=d.vods.find(v=>v.chat);
   if(cv){ CHAT_LAT=cv.chat.lat||4;
     const ct=document.getElementById("chatToggle"); ct.style.display=""; ct.classList.toggle("on",showChat);
-    document.getElementById("kwScope").style.display="";
-    loadChat(); }
+    document.getElementById("kwScope").style.display=""; }
   document.getElementById("foot").textContent=
     "🐲💛 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · search what she said · ←/→ to step.";
   renderFilters(); render();
+  loadPacks(d.packs||{});
 }).catch(err=>{
   document.getElementById("list").innerHTML=
-    '<div class="empty">Could not load <b>data.json</b>. Serve this folder over http (GitHub Pages or <code>python -m http.server</code>), not file://.</div>';
-  document.getElementById("summary").textContent=""; });
+    '<div class="empty">Could not load <b>index.json</b>. Serve this folder over http (GitHub Pages or <code>python -m http.server</code>), not file://.</div>';
+  document.getElementById("summary").textContent="";
+  const el=document.getElementById("tgload"); if(el) el.style.display="none"; });
 
-// Transcripts : chargés EN PARALLÈLE de data.json (ne bloquent pas l'affichage),
-// pas en cascade après. 31 Mo (≈11 Mo gzip) → ça arrive en général avant même
-// que l'utilisateur lance une recherche. Sert uniquement à la recherche « what
-// she said » + la modale transcript (les extraits des moments sont déjà dans
-// data.json). On lit le flux pour afficher les Mo reçus, et la recherche/modale
-// en attente se rafraîchit toute seule à la fin.
-// Barre de chargement : % + temps restant estimé + Mo reçus. Le total vient de
-// la taille embarquée (TBYTES, décompressée) ou du Content-Length (si non gzip,
-// ex. localhost). Sans total connu → simple compteur de Mo (pas de barre).
+// Texte (transcripts + chat Twitch) : un pack par mois (text/YYYY-MM.json),
+// TOUS chargés en arrière-plan dès l'index reçu → la recherche porte
+// directement sur tout, comme avec l'ancien transcripts.json unique. Chaque
+// pack est gardé dans le Cache Storage sous son empreinte (index.json →
+// packs[mois].h) : un visiteur qui revient ne re-télécharge que les mois qui
+// ont changé. Le cache HTTP seul ne suffit pas : GitHub Pages change l'ETag de
+// TOUS les fichiers à chaque publication.
+// Barre de chargement : % + temps restant estimé + Mo reçus. Le total est la
+// somme des tailles DÉCOMPRESSÉES des packs (index.json → packs[mois].n).
+const PACK_CACHE="sdd-text-v1";
+let tLoadStart=0;
 function loadBarHTML(){
-  const total=tLoadTotal||TBYTES||0, recv=tLoadedBytes||0;
+  const total=tLoadTotal||0, recv=tLoadedBytes||0;
   const pct=total?Math.min(100,Math.round(100*recv/total)):0;
   let eta="";
   if(total && tRate>0 && recv<total){ const s=Math.max(1,Math.ceil((total-recv)/tRate)); eta=" · ~"+s+"s left"; }
@@ -1154,54 +1164,78 @@ function setLoadMsg(){ const html=loadBarHTML();
   const a=document.getElementById("loadMsg"); if(a) a.innerHTML=html;
   const b=document.getElementById("tmLoadMsg"); if(b) b.innerHTML=html;
   renderGlobalLoad(); }
-// Barre GLOBALE de l'en-tête : indique le téléchargement de TOUS les transcripts
+// Barre GLOBALE de l'en-tête : indique le chargement de TOUS les transcripts
 // (visible même sans recherche). Masquée une fois prête ou sur erreur.
 function renderGlobalLoad(){
   const el=document.getElementById("tgload"); if(!el) return;
   if(transcriptsReady){ el.style.display="none"; return; }
   el.style.display="inline-flex";
-  const total=tLoadTotal||TBYTES||0, recv=tLoadedBytes||0;
+  const total=tLoadTotal||0, recv=tLoadedBytes||0;
   const pct=total?Math.min(100,Math.round(100*recv/total)):0;
   let eta=""; if(total && tRate>0 && recv<total){ eta=" · ~"+Math.max(1,Math.ceil((total-recv)/tRate))+"s"; }
   const txt=document.getElementById("tgtxt"), fill=document.getElementById("tgfill");
   if(txt) txt.textContent="Downloading all transcripts… "+(total?(pct+"%"+eta):((recv/1048576).toFixed(1)+" MB"));
   if(fill) fill.style.width=pct+"%";
 }
-function streamJson(resp){
+function addLoaded(n){
+  tLoadedBytes+=n; const el=(performance.now()-tLoadStart)/1000; if(el>0) tRate=tLoadedBytes/el; }
+function readBody(resp){
   // Lecture incrémentale → progression (octets décompressés) + débit pour l'ETA.
-  if(!resp.ok || !resp.body || !resp.body.getReader) return resp.json();
-  tLoadTotal = TBYTES || +(resp.headers.get("content-length")||0) || 0;
-  const reader=resp.body.getReader(), chunks=[]; let recv=0, last=0; const t0=performance.now();
+  if(!resp.body || !resp.body.getReader) return resp.text().then(s=>{ addLoaded(s.length); return s; });
+  const reader=resp.body.getReader(), chunks=[]; let recv=0, last=0;
   return new Promise((resolve,reject)=>{ (function pump(){
     reader.read().then(({done,value})=>{
       if(done){ const buf=new Uint8Array(recv); let off=0;
         for(const c of chunks){ buf.set(c,off); off+=c.length; }
-        resolve(JSON.parse(new TextDecoder().decode(buf))); return; }
-      chunks.push(value); recv+=value.length; tLoadedBytes=recv;
-      const el=(performance.now()-t0)/1000; if(el>0) tRate=recv/el;
+        resolve(new TextDecoder().decode(buf)); return; }
+      chunks.push(value); recv+=value.length; addLoaded(value.length);
       if(recv-last>262144){ last=recv; setLoadMsg(); }   // MAJ de la barre ~tous les 256 Ko
       pump();
     }).catch(reject); })(); });
 }
-// Chat Twitch (léger : ~1 Mo) : log du chat + recherche dans le chat. Chargé
-// seulement si data.json contient des VOD synchronisées.
-function loadChat(){
-  fetch("chat.json?v="+Date.now()).then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
-  .then(c=>{ CHAT=c.c||{}; EMOTES=c.e||{}; chatReady=true;
-    if(kwVal() && kwScope.includes("c")) render();
-    if(transcriptOpen() && tVod && tMode==="c") openTranscript(tVod); })
-  .catch(()=>{ chatReady=true;   // repli : le site reste utilisable sans le chat
-    if(transcriptOpen() && tVod && tMode==="c") openTranscript(tVod); });
+function packUrl(month, meta){ return "text/"+month+".json?h="+meta.h; }
+async function loadPack(cache, month, meta){
+  const url=packUrl(month, meta);
+  if(cache){                                   // déjà en cache local, même empreinte
+    try{ const hit=await cache.match(url);
+      if(hit){ const s=await hit.text(); addLoaded(meta.n||s.length); setLoadMsg(); return JSON.parse(s); }
+    }catch(e){}
+  }
+  const resp=await fetch(url,NOCACHE);
+  if(!resp.ok) throw new Error(resp.status);
+  // Copie vers le cache en parallèle de la lecture (sans bloquer la progression).
+  const put=cache ? cache.put(url, resp.clone()).catch(()=>{}) : null;
+  const s=await readBody(resp);
+  if(put) await put;
+  return JSON.parse(s);
 }
-renderGlobalLoad();   // affiche la barre d'en-tête dès le départ (avant le 1er octet)
-fetch("transcripts.json?v="+Date.now()).then(streamJson).then(t=>{
-  TRANSCRIPTS=t.t||{}; transcriptsReady=true; tLoadedBytes=0; tRate=0;
+async function loadPacks(packs){
+  const months=Object.keys(packs).sort().reverse();   // mois récents d'abord
+  tLoadTotal=months.reduce((s,m)=>s+(packs[m].n||0),0); tLoadedBytes=0; tRate=0;
+  tLoadStart=performance.now(); setLoadMsg();
+  let cache=null;
+  try{ cache=await caches.open(PACK_CACHE); }catch(e){}   // indisponible (navigation privée…) → réseau seul
+  let next=0;
+  async function worker(){
+    while(next<months.length){ const m=months[next++];
+      try{ const p=await loadPack(cache, m, packs[m]);
+        Object.assign(TRANSCRIPTS, p.t||{}); Object.assign(CHAT, p.c||{});
+      }catch(e){ /* mois manquant : le reste du site reste utilisable */ }
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);   // 4 téléchargements en parallèle
+  transcriptsReady=true; chatReady=true; tLoadedBytes=0; tRate=0;
   renderGlobalLoad();   // prête → masque la barre d'en-tête
-  // Une recherche ou une modale transcript déjà ouverte se résout d'elle-même.
+  // Une recherche ou une modale transcript/chat déjà ouverte se résout d'elle-même.
   if(kwVal()) render();
   if(transcriptOpen() && tVod) openTranscript(tVod);
-}).catch(()=>{ /* repli silencieux : le site reste utilisable sans recherche */
-  const el=document.getElementById("tgload"); if(el) el.style.display="none"; });
+  // Ménage : anciennes versions des packs (empreinte périmée, mois disparu).
+  if(cache){ try{
+    const keep=new Set(months.map(m=>new URL(packUrl(m, packs[m]), location.href).href));
+    for(const req of await cache.keys()) if(!keep.has(req.url)) await cache.delete(req);
+  }catch(e){} }
+}
+renderGlobalLoad();   // affiche la barre d'en-tête dès le départ (avant le 1er octet)
 </script>
 <script src="https://www.youtube.com/iframe_api"></script>
 </body>
