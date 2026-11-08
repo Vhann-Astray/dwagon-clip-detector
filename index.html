@@ -62,7 +62,15 @@
     background:var(--panel2); border:1px solid var(--line); color:var(--text);
     border-radius:8px; padding:7px; font:inherit; font-size:13px; cursor:pointer; }
   .nowacts .ok { color:#7CFC98; border-color:#7CFC98; }
+  .nowacts button:disabled { opacity:.4; cursor:default; }
+  /* Transcript | Chat : un bouton coupé en deux (même place que l'ancien Transcript) */
+  .nowsplit { flex:1; display:flex; min-width:0; }
+  .nowsplit button { min-width:0; white-space:nowrap; }
+  .nowsplit button:first-child { border-radius:8px 0 0 8px; }
+  .nowsplit button:last-child { border-radius:0 8px 8px 0; margin-left:-1px; }
+  @media (max-width:560px){ .nowsplit .lbl { display:none; } }   /* téléphone : icônes seules */
   #nowTranscript.on { color:#0b0d12; background:var(--accent); border-color:var(--accent); font-weight:650; }
+  #nowChat.on { color:#0b0d12; background:#a970ff; border-color:#a970ff; font-weight:650; }
 
   /* ---- List column ---- */
   .list-col { min-width:0; }
@@ -293,7 +301,10 @@
       </div>
       <div class="nowacts">
         <a id="nowOpen" href="#" target="_blank" rel="noopener">↗ YouTube</a>
-        <button id="nowTranscript">📄 Transcript</button>
+        <span class="nowsplit">
+          <button id="nowTranscript" disabled title="YouTube transcript (what she said), at the current position">📄<span class="lbl"> Transcript</span></button>
+          <button id="nowChat" disabled title="Twitch chat replay, synced to the YouTube VOD">💬<span class="lbl"> Chat</span></button>
+        </span>
         <button id="nowCopy">⧉ Copy link</button>
       </div>
       <div class="t2" style="margin-top:8px"><span>Keys: <kbd>←</kbd> <kbd>→</kbd> navigate</span></div>
@@ -320,8 +331,7 @@ let page=0;               // page courante (pagination des VOD)
 let pageBeforeFocus=0;    // page à restaurer quand on dé-pin une VOD
 let anchorVods=null;      // ids des VOD visibles avant un re-rendu → garder sa place
 let vodOrder="newest";    // ordre des VOD : "newest" (récent→ancien) ou "oldest"
-let pageSize=7;           // nb de VOD par page (ajusté dynamiquement à la hauteur)
-let fitting=false;        // garde-fou anti-récursion du calcul de hauteur
+const pageSize=5;         // nb de VOD par page (fixe : ~ la hauteur du lecteur ; petit écran → on défile)
 let TRANSCRIPTS={}, transcriptsReady=false;   // transcripts complets (prefetch)
 let tLoadedBytes=0, tLoadTotal=0, tRate=0;   // chargement des packs : octets reçus, total (index.json), débit (o/s)
 let fsObserver=null;      // IntersectionObserver : pellicules chargées à l'apparition
@@ -570,14 +580,14 @@ function openTranscript(vodId, focusT){
                                                         :"No transcript available for this VOD.")+'</div>';
   else buildTranscriptLines(vodId, kwVal());
   document.getElementById("tmodal").style.display="block";
-  document.getElementById("nowTranscript").classList.add("on");
+  syncNowBtns();
   positionTranscript();
   buildMatchRail(ready?kwVal():"");
   // rAF : on laisse le panneau se poser (layout) avant de calculer le scroll.
   if(focusT!=null && ready) requestAnimationFrame(()=>scrollTranscriptTo(focusT));
 }
 function closeTranscript(){ document.getElementById("tmodal").style.display="none"; tVod=null;
-  document.getElementById("nowTranscript").classList.remove("on"); }
+  syncNowBtns(); }
 function transcriptOpen(){ return document.getElementById("tmodal").style.display!=="none"; }
 
 // --- Aperçu storyboard : calcule la tuile de la sprite à l'instant t ---
@@ -810,9 +820,9 @@ function select(i){
   if(i<0||i>=flat.length) return;
   if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
   cur=i; const m=flat[cur]; m.el.classList.add("active");
-  selKey=m.vod+"@"+m.t+"@"+m.type;   // mémorise la sélection (survit aux re-rendus de fitPage)
+  selKey=m.vod+"@"+m.t+"@"+m.type;   // mémorise la sélection (survit aux re-rendus)
   playT=m.t; playVod=m.vod;
-  playAt(m.vod, m.t);
+  playAt(m.vod, m.t); syncNowBtns();
   const d=DET[m.type]||{color:"#888",emoji:"",label:m.type};
   document.getElementById("nowTitle").textContent=m.title;
   document.getElementById("nowSub").innerHTML=
@@ -842,7 +852,7 @@ function seekTimeline(v, t){
   if(cur>=0 && flat[cur]) flat[cur].el.classList.remove("active");
   cur=-1; selKey=null;
   playT=t; playVod=v.vod_id;
-  playAt(v.vod_id, t);
+  playAt(v.vod_id, t); syncNowBtns();
   document.getElementById("nowTitle").textContent=v.title;
   document.getElementById("nowSub").innerHTML=`<span>@ ${hmsT(t)}</span>`;
   document.getElementById("nowText").textContent="";
@@ -858,8 +868,8 @@ function seekTimeline(v, t){
 }
 
 // Restaure l'état de sélection (surlignage + compteur + Prev/Next) après un
-// re-rendu, SANS relancer la lecture ni le recentrage. Utilisé quand fitPage()
-// reconstruit la liste alors qu'un moment était déjà sélectionné.
+// re-rendu, SANS relancer la lecture ni le recentrage. Utilisé quand un re-rendu
+// (redimensionnement…) reconstruit la liste alors qu'un moment était déjà sélectionné.
 function reselectSoft(i){
   cur=i; flat[cur].el.classList.add("active");
   document.getElementById("counter").textContent=(cur+1)+" / "+flat.length;
@@ -901,7 +911,7 @@ function render(){
     return ok;
   });
   const nV=visible.length;
-  // Pagination (pageSize ajusté à la hauteur après le rendu, voir fitPage).
+  // Pagination : pageSize VOD par page.
   const pages=Math.max(1,Math.ceil(nV/pageSize));
   // Ancrage : après un re-rendu « garder la place », on saute à la page de la
   // 1re VOD qui était visible et qui survit au nouveau filtre (sinon page 0).
@@ -1009,10 +1019,9 @@ function render(){
   document.getElementById("prevBtn").disabled=true; document.getElementById("nextBtn").disabled=flat.length===0;
   renderPager(pages);
 
-  // Post-rendu : réapplique la sélection si un re-rendu (ex. fitPage) a effacé cur.
+  // Post-rendu : réapplique la sélection si un re-rendu (ex. redimensionnement) a effacé cur.
   if(cur<0 && selKey){ const i=flat.findIndex(m=>(m.vod+"@"+m.t+"@"+m.type)===selKey);
     if(i>=0) reselectSoft(i); }
-  fitPage();   // ajuste le nb de VOD/page à la hauteur du lecteur
 }
 
 // Pagination : barre Préc / Page X/Y / Suiv (cachée s'il n'y a qu'une page).
@@ -1036,38 +1045,6 @@ function reRenderKeepingPlace(){
   render();
 }
 
-// Ajuste pageSize pour que la liste remplisse la hauteur du lecteur (sans scroll).
-// Par position : on ajoute des cartes tant qu'il reste de la place sous la
-// dernière jusqu'au bas du lecteur (léger débordement toléré → remplit pile).
-function fitPage(){
-  if(fitting || window.innerWidth<=980 || !DATA) return;   // mono-colonne : empilé
-  if(focusVod) return;   // focus : 1 VOD étalée en rangées, pas de pagination à ajuster
-  const pc=document.querySelector(".player-col"), list=document.getElementById("list");
-  if(!pc || !list) return;
-  const pager=document.getElementById("pager"), footer=document.querySelector("footer");
-  for(let i=0;i<8;i++){
-    const probe=list.querySelector(".group:not(.open)") || list.querySelector(".group");
-    if(!probe) return;
-    const pr=probe.getBoundingClientRect();
-    if(pr.height<=0) return;                          // pas de layout (ex. jsdom) → on garde pageSize
-    const C=pr.height + parseFloat(getComputedStyle(probe).marginBottom||"0");
-    const rendered=list.querySelectorAll(".group").length;
-    const last=list.querySelector(".group:last-child");
-    const lastBottom=last?last.getBoundingClientRect().bottom:pc.getBoundingClientRect().top;
-    const pagerH=(pager && pager.style.display!=="none")?pager.getBoundingClientRect().height:0;
-    const footerH=footer?footer.getBoundingClientRect().height:0;
-    // Limite = bas du viewport − barre de pages − footer → la liste remplit
-    // jusque-là sans jamais faire défiler (footer toujours visible).
-    const limit=window.innerHeight - pagerH - footerH - 4;
-    let next=pageSize;
-    if(lastBottom+C<=limit && rendered>=pageSize) next=pageSize+Math.max(1,Math.floor((limit-lastBottom)/C));
-    else if(lastBottom>limit) next=pageSize-1;        // sécurité : ça dépasse → on retire
-    next=Math.max(1,next);
-    if(next===pageSize) break;
-    fitting=true; pageSize=next; render(); fitting=false;
-  }
-}
-
 document.getElementById("prevBtn").onclick=()=>select(cur-1);
 document.getElementById("nextBtn").onclick=()=> select(cur<0?0:cur+1);
 document.getElementById("nowCopy").onclick=function(){   // lien courant (moment OU position cherchée)
@@ -1084,10 +1061,24 @@ document.getElementById("vodOrder").onclick=function(){
   vodOrder=(vodOrder==="newest")?"oldest":"newest";
   this.textContent=(vodOrder==="newest")?"Newest first":"Oldest first"; reRender(); };
 // Modale transcript : ouverture depuis la carte lecteur, fermeture, recherche interne.
-document.getElementById("nowTranscript").onclick=()=>{
-  if(transcriptOpen()){ closeTranscript(); return; }   // toggle : ferme si ouvert
-  const vid=curVid||playVod||(cur>=0?flat[cur].vod:null);
-  openTranscript(vid, posOf(vid)); };
+// Transcript | Chat : ouvre le panneau sur la VOD en cours, dans ce mode ; un
+// 2e clic sur le mode affiché le ferme, l'autre bouton bascule d'onglet.
+function nowVid(){ return curVid||playVod||(cur>=0?flat[cur].vod:null); }
+function openNow(mode){
+  if(transcriptOpen() && tMode===mode){ closeTranscript(); return; }
+  const vid=nowVid(); tMode=mode; openTranscript(vid, posOf(vid)); }
+document.getElementById("nowTranscript").onclick=()=>openNow("t");
+document.getElementById("nowChat").onclick=()=>openNow("c");
+// État des deux boutons : actifs dès qu'une VOD est choisie (Chat seulement si
+// elle a un chat Twitch synchronisé), allumé = mode affiché dans le panneau.
+function syncNowBtns(){
+  const vid=nowVid(), v=vid&&DATA?DATA.vods.find(x=>x.vod_id===vid):null, open=transcriptOpen();
+  const bt=document.getElementById("nowTranscript"), bc=document.getElementById("nowChat");
+  bt.disabled=!vid; bc.disabled=!(v&&v.chat);
+  bc.title=(v&&v.chat)?"Twitch chat replay ("+v.chat.n+" messages, synced to this VOD)"
+          :vid?"No Twitch chat archived for this VOD":"Twitch chat replay, synced to the YouTube VOD";
+  bt.classList.toggle("on", open && tMode==="t");
+  bc.classList.toggle("on", open && tMode==="c"); }
 document.getElementById("tmClose").onclick=closeTranscript;
 // Relance la recherche transcript : surligne, (ré)indexe, signale une regex invalide.
 function runTranscriptSearch(){
@@ -1107,9 +1098,12 @@ document.getElementById("tmWord").onclick=function(){
 // Position à laquelle aligner la modale pour une VOD : instant réel du lecteur
 // si cette VOD est en cours, sinon la dernière position choisie (moment, clic
 // pellicule, clic sur une ligne transcript/chat), sinon rien.
+// Le temps du lecteur ne compte que s'il joue déjà CETTE vidéo : juste après un
+// clic sur une autre VOD, il peut encore renvoyer le temps de la précédente.
 function posOf(vid){
   if(vid && vid===curVid && playerReady && player && player.getCurrentTime){
-    try{ const t=player.getCurrentTime(); if(t>0) return t; }catch(e){} }
+    try{ const d=player.getVideoData&&player.getVideoData(), t=player.getCurrentTime();
+      if(t>0 && (!d || !d.video_id || d.video_id===vid)) return t; }catch(e){} }
   return playVod===vid ? playT : null;
 }
 function setModalMode(m){ tMode=m; if(tVod) openTranscript(tVod, posOf(tVod)); }
@@ -1127,15 +1121,8 @@ document.getElementById("kwScope").onclick=function(){
 document.getElementById("tmPrev").onclick=()=>gotoMatch(-1);
 document.getElementById("tmNext").onclick=()=>gotoMatch(1);
 window.addEventListener("resize",debounce(()=>{
-  if(transcriptOpen()) positionTranscript(); render();   // re-fit la hauteur
+  if(transcriptOpen()) positionTranscript(); render();   // rangées focus + pellicule à la nouvelle taille
 },150));
-// L'en-tête change de hauteur sans redimensionnement de fenêtre (barre de
-// chargement des transcripts qui apparaît puis disparaît, boutons du chat…) :
-// il passe sur 2 lignes puis revient à 1 → la place des cartes change. Sans ça,
-// le 1er affichage gardait 1 carte de moins jusqu'au changement de page.
-if("ResizeObserver" in window){ let headH=0; const hd=document.querySelector("header");
-  new ResizeObserver(debounce(()=>{ const h=hd.offsetHeight;
-    if(h!==headH){ headH=h; if(DATA) fitPage(); } },120)).observe(hd); }
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){ if(transcriptOpen()) closeTranscript(); return; }
   if(transcriptOpen()) return;   // modale ouverte : pas de navigation ←/→
@@ -1167,7 +1154,7 @@ fetch("index.json",NOCACHE).then(r=>r.json()).then(d=>{
     document.getElementById("kwScope").style.display=""; }
   document.getElementById("foot").textContent=
     "🐲💛 SillyDwagonDetector · data generated "+(d.generated_utc||"")+" UTC · click a VOD header to expand · hover a moment to preview the frame · search what she said · ←/→ to step.";
-  renderFilters(); render();
+  renderFilters(); render(); syncNowBtns();
   loadPacks(d.packs||{});
 }).catch(err=>{
   document.getElementById("list").innerHTML=
@@ -1266,7 +1253,7 @@ async function loadPacks(packs){
   renderGlobalLoad();   // prête → masque la barre d'en-tête
   // Une recherche ou une modale transcript/chat déjà ouverte se résout d'elle-même.
   if(kwVal()) render();
-  if(transcriptOpen() && tVod) openTranscript(tVod);
+  if(transcriptOpen() && tVod) openTranscript(tVod, posOf(tVod));   // reste calée sur l'instant choisi
   // Ménage : anciennes versions des packs (empreinte périmée, mois disparu).
   if(cache){ try{
     const keep=new Set(months.map(m=>new URL(packUrl(m, packs[m]), location.href).href));

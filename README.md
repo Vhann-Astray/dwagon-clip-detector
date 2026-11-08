@@ -30,7 +30,8 @@ Each detected moment links straight to the exact spot in the YouTube VOD.
   days, so the chat is archived and synced to the YouTube VOD by audio):
   - **activity graph** on the filmstrip (`💬 Chat` toggles it), peaks aligned on
     the action that caused them; hovering also shows the chat's reactions;
-  - **chat replay** (💬 on a VOD, or the Chat tab of the transcript panel), with
+  - **chat replay** (💬 on a VOD or under the player, or the Chat tab of the
+    transcript panel), with
     Twitch, 7TV and BTTV emotes, timed like the chat box shown in the stream;
     click a message to jump there.
 - **Type filters** (screams, laughter…), **minimum-score filter**, **VOD-title
