@@ -117,6 +117,7 @@
   #sbprev .sbchat:empty { display:none; }
   #sbprev .sbchat div { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #sbprev .sbchat b { font-weight:650; }
+  #sbprev .sbchat .pre { opacity:.55; }     /* messages juste avant l'instant pointé */
   .tline .tu { font-weight:650; margin-right:6px; }
   /* emotes du chat (Twitch / 7TV / BTTV) à la hauteur du texte */
   img.emote { height:1.75em; width:auto; vertical-align:middle; margin:-.35em .08em; }
@@ -186,6 +187,13 @@
   #sbprev .sbtext { margin-top:4px; font-size:12px; color:var(--text); line-height:1.35;
     display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
   #sbprev .sbtext:empty { display:none; }
+  /* transcript en contexte : phrase pointée (barre d'accent) + voisines atténuées */
+  #sbprev .sbctx { margin-top:4px; font-size:12px; line-height:1.35; color:var(--muted); }
+  #sbprev .sbctx div { padding-left:8px; display:-webkit-box; -webkit-line-clamp:2;
+    -webkit-box-orient:vertical; overflow:hidden; }
+  #sbprev .sbctx div + div { margin-top:2px; }
+  #sbprev .sbctx .cur { color:var(--text); border-left:2px solid var(--accent); padding-left:6px;
+    -webkit-line-clamp:3; }
   #sbprev .sbhint { margin-top:5px; font-size:10px; color:var(--muted); opacity:.75; }
   .pager { display:flex; gap:10px; align-items:center; justify-content:center; padding:12px 0 4px; }
   .pager button { background:var(--panel2); border:1px solid var(--line); color:var(--text);
@@ -369,11 +377,15 @@ function searchHits(vid, kw, whole){ if(!kw) return [];
   const b=kwScope.includes("c")?matchChat(vid,kw,whole):[];
   return a.concat(b); }
 function searchLoading(){ return (kwScope.includes("t")&&!transcriptsReady)||(kwScope.includes("c")&&!chatReady); }
-// Messages provoqués par l'instant t de la VOD (postés dans [t+lat−1, t+lat+8]).
-function chatAt(vid, t, n){ const arr=CHAT[vid]; if(!arr||!arr.length) return [];
-  const a=t+CHAT_LAT-1, b=t+CHAT_LAT+8; let lo=0, hi=arr.length;
+// Chat autour de l'instant t de la VOD : jusqu'à nPre messages juste avant
+// (postés dans [t+lat−5, t+lat−1[, la réaction qui monte) puis ceux provoqués
+// par l'instant (postés dans [t+lat−1, t+lat+10]), n au total. → [[msg, avant?]]
+function chatAround(vid, t, n, nPre){ const arr=CHAT[vid]; if(!arr||!arr.length) return [];
+  const a=t+CHAT_LAT-1, b=t+CHAT_LAT+10; let lo=0, hi=arr.length;
   while(lo<hi){ const mid=(lo+hi)>>1; if(arr[mid][0]<a) lo=mid+1; else hi=mid; }
-  const out=[]; for(let i=lo;i<arr.length&&arr[i][0]<=b&&out.length<n;i++) out.push(arr[i]);
+  const out=[];
+  for(let i=Math.max(0,lo-nPre);i<lo;i++) if(arr[i][0]>=a-4) out.push([arr[i],true]);
+  for(let i=lo;i<arr.length&&arr[i][0]<=b&&out.length<n;i++) out.push([arr[i],false]);
   return out; }
 // Couleur de pseudo Twitch lisible sur le fond sombre : comme Twitch en mode
 // sombre, une couleur trop foncée (ex. bleu pur) est mélangée à du blanc jusqu'à
@@ -583,44 +595,60 @@ function sbStyle(sb, t){
     size:(sb.cols*sb.tw*scale)+"px "+(sb.rows*sb.th*scale)+"px",
     pos:"-"+(col*sb.tw*scale)+"px -"+(row*sb.th*scale)+"px" }; }
 
-// Segment de transcript couvrant l'instant t (ou "" si trou > 12 s / pas prêt).
-function transcriptAt(vodId, t){
-  const segs=TRANSCRIPTS[vodId]; if(!segs||!segs.length) return "";
+// Transcript autour de l'instant t : le segment qui le couvre (cur, si début
+// ≤ 12 s avant t) entouré de nb segments avant et na après, voisins limités à
+// [t−30 s, t+25 s] (pas de phrase d'il y a 2 min après un long silence).
+// → [{x, cur}] ; [] si pas de transcript (ou pas encore chargé).
+function transcriptCtx(vodId, t, nb, na){
+  const segs=TRANSCRIPTS[vodId]; if(!segs||!segs.length) return [];
   let lo=0,hi=segs.length-1,best=-1;
   while(lo<=hi){ const mid=(lo+hi)>>1; if(segs[mid][0]<=t){ best=mid; lo=mid+1; } else hi=mid-1; }
-  return (best>=0 && t-segs[best][0]<=12) ? segs[best][1] : ""; }
+  const cur=(best>=0 && t-segs[best][0]<=12) ? best : -1;
+  const first=Math.max(0, (cur>=0?cur:best+1)-nb), out=[];
+  for(let i=first;i<segs.length&&i<=best+na;i++){
+    if(i!==cur && (segs[i][0]<t-30 || segs[i][0]>t+25)) continue;
+    out.push({x:segs[i][1], cur:i===cur}); }
+  return out; }
 
-// Légende de l'aperçu : horodatage (+ badge type/score) + phrase (mot cherché surligné).
+// Légende de l'aperçu : horodatage (+ badge type/score) + transcript en contexte
+// (ou phrase seule) + chat, mot cherché surligné.
 function buildCaption(cap){
   if(!cap) return "";
   const badge=cap.badge?`<span class="sbbadge" style="background:${cap.badge.color}">`+
     `${cap.badge.emoji||""} ${esc(cap.badge.label)}</span>`:"";
   const sc=cap.score!=null?`<span class="sbsc">score ${cap.score.toFixed(2)}</span>`:"";
   const l1=`<div class="sbline1"><span class="sbt">${cap.hms}</span>${badge}${sc}</div>`;
-  const txt=`<div class="sbtext">${!cap.text?"":cap.rich?richChat(cap.text,cap.kw,kWholeWord)
-    :(cap.kw?hl(cap.text,cap.kw,kWholeWord):esc(cap.text))}</div>`;
-  const chat=`<div class="sbchat">${(cap.chat||[]).map(m=>
-    `<div><b style="color:${chatColor(m[3])}">${esc(m[1])}</b> ${richChat(m[2])}</div>`).join("")}</div>`;
+  const H=s=>cap.kw?hl(s,cap.kw,kWholeWord):esc(s);
+  const txt=(cap.ctx&&cap.ctx.length)
+    ? `<div class="sbctx">${cap.ctx.map(c=>`<div${c.cur?' class="cur"':""}>${H(c.x)}</div>`).join("")}</div>`
+    : `<div class="sbtext">${!cap.text?"":cap.rich?richChat(cap.text,cap.kw,kWholeWord):H(cap.text)}</div>`;
+  const chat=`<div class="sbchat">${(cap.chat||[]).map(([m,pre])=>
+    `<div${pre?' class="pre"':""}><b style="color:${chatColor(m[3])}">${esc(m[1])}</b> ${richChat(m[2])}</div>`).join("")}</div>`;
   return l1+txt+chat+`<div class="sbhint">click to jump here</div>`; }
 
-// Aperçu unifié : image storyboard + légende. cap = {hms,badge,score,text,kw}.
+// Aperçu unifié : image storyboard + légende. cap = {hms,badge,score,text,ctx,chat,kw}.
 function sbShow(sb, t, e, cap){
   const prev=document.getElementById("sbprev");
   const img=prev.querySelector(".sbimg");
   prev.style.display="block";          // visible d'abord → clientWidth correct
   const s=sb?sbStyle(sb,t):null;
-  if(!s && !(cap && (cap.text||cap.badge||(cap.chat&&cap.chat.length)))){ prev.style.display="none"; return; }
+  if(!s && !(cap && (cap.text||cap.badge||(cap.ctx&&cap.ctx.length)||(cap.chat&&cap.chat.length)))){
+    prev.style.display="none"; return; }
   if(s){ const safeUrl=s.url.replace(/[\\'"\r\n]/g,c=>"\\"+c);
     img.style.display="block"; img.style.backgroundImage="url('"+safeUrl+"')";
     img.style.backgroundSize=s.size; img.style.backgroundPosition=s.pos; }
   else img.style.display="none";
   prev.querySelector(".sbcap").innerHTML=buildCaption(cap);
   sbMove(e); }
-function sbMove(e){ const prev=document.getElementById("sbprev");
-  let x=e.clientX+16, y=e.clientY+16;
+// Sous le curseur dans la moitié haute de l'écran, au-dessus dans la moitié basse :
+// le côté ne dépend pas de la hauteur (variable) de l'aperçu → pas de saut d'un
+// côté à l'autre en glissant le long d'une rangée. Puis gardé entier à l'écran.
+function sbMove(e){ const prev=document.getElementById("sbprev"), h=prev.offsetHeight;
+  let x=e.clientX+16;
   if(x+prev.offsetWidth>innerWidth-8) x=e.clientX-prev.offsetWidth-16;
-  if(y+prev.offsetHeight>innerHeight-8) y=e.clientY-prev.offsetHeight-16;
-  prev.style.left=x+"px"; prev.style.top=Math.max(8,y)+"px"; }
+  let y=(e.clientY<innerHeight/2) ? e.clientY+16 : e.clientY-h-16;
+  y=Math.max(8, Math.min(y, innerHeight-h-8));
+  prev.style.left=x+"px"; prev.style.top=y+"px"; }
 function sbHide(){ document.getElementById("sbprev").style.display="none"; }
 
 // --- Pellicule : une vignette storyboard "cover" dans une cellule elW×elH ---
@@ -678,15 +706,22 @@ function buildTimelineRow(v, t0, t1){
   row.addEventListener("mousemove",e=>{ const p=timeAt(e);
     cursor.style.display="block"; cursor.style.left=p.x+"px";
     const m=e.target&&e.target._moment;   // survol d'un tick → infos du moment
+    // Écran bas (portable) : moins de contexte pour que l'aperçu tienne en hauteur.
+    const roomy=innerHeight>=760, nb=1, na=roomy?2:1, nChat=roomy?8:4, nPre=roomy?2:1;
     let cap;
     if(m){ const d=m.search?{emoji:"🔎",label:"Search",color:SEARCH.color}
                            :(DET[m.type]||{emoji:"",label:m.type,color:"#888"});
-      cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null,rich:m.type==="chat"}; }
-    else cap={hms:hmsT(p.t),badge:null,score:null,text:transcriptAt(v.vod_id,p.t),kw:kwVal()||null};
-    // Réactions du chat à cet instant (quelques messages, si la courbe est affichée).
-    // (pas sur un tick de résultat chat : la carte montre déjà ce message).
-    cap.chat=(v.chat&&showChat&&!(m&&m.type==="chat"))?chatAt(v.vod_id, m?m.t:p.t, 3):[];
-    if(v.sb||cap.text||cap.chat.length) sbShow(v.sb, m?m.t:p.t, e, cap); });
+      cap={hms:m.hms,badge:d,score:m.score,text:m.text,kw:kwVal()||null,rich:m.type==="chat"};
+      // Détection / résultat transcript : phrases autour du moment, si le segment du
+      // moment est trouvé (sinon l'extrait stocké seul, ex. transcripts pas encore chargés).
+      if(!cap.rich){ const ctx=transcriptCtx(v.vod_id, m.t, nb, na);
+        if(ctx.some(c=>c.cur)) cap.ctx=ctx; } }
+    else cap={hms:hmsT(p.t),badge:null,score:null,text:"",
+              ctx:transcriptCtx(v.vod_id, p.t, nb, na),kw:kwVal()||null};
+    // Chat autour de cet instant (si la courbe est affichée) ; pas sur un tick de
+    // résultat chat : la carte montre déjà ce message.
+    cap.chat=(v.chat&&showChat&&!cap.rich)?chatAround(v.vod_id, m?m.t:p.t, nChat, nPre):[];
+    if(v.sb||cap.text||(cap.ctx&&cap.ctx.length)||cap.chat.length) sbShow(v.sb, m?m.t:p.t, e, cap); });
   row.addEventListener("mouseleave",()=>{ cursor.style.display="none"; sbHide(); });
   row.addEventListener("click",e=>{ if(e.target.classList.contains("tick")) return;
     seekTimeline(v, timeAt(e).t); });
