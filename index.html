@@ -157,7 +157,12 @@
   .mclose { background:none; border:1px solid var(--line); color:var(--text); border-radius:8px;
     cursor:pointer; padding:6px 11px; font:inherit; }
   .mclose:hover { border-color:var(--accent); }
-  .mwrap { display:flex; flex:1; min-height:0; }
+  .mwrap { display:flex; flex:1; min-height:0; position:relative; }
+  /* suivi de la lecture en pause (défilement manuel, saut à une occurrence) → reprise */
+  .tresume { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); z-index:2;
+    background:var(--accent); color:#0b0d12; border:0; border-radius:999px; padding:7px 14px;
+    font:inherit; font-size:12px; font-weight:650; cursor:pointer; box-shadow:0 6px 18px -4px #000; }
+  .tresume:hover { filter:brightness(1.12); }
   .mbody { flex:1; overflow-y:auto; padding:8px; }
   /* rail vertical : position des occurrences du mot cherché dans le transcript */
   .trail { flex:none; width:16px; position:relative; background:var(--panel2);
@@ -280,6 +285,7 @@
     <div class="mwrap">
       <div class="mbody" id="tmBody"></div>
       <div class="trail" id="tmRail" style="display:none"></div>
+      <button id="tmResume" class="tresume" style="display:none" title="Scroll along with the video again">↻ Follow playback</button>
     </div>
   </div>
 </div>
@@ -325,6 +331,9 @@ const TLH=62;             // hauteur de la barre (= hauteur de l'en-tête)
 let focusVod=null;        // VOD verrouillée (focus) — null = toutes
 let tVod=null;            // VOD affichée dans la modale transcript
 let tMatches=[], tMatchIdx=-1;   // occurrences du mot cherché dans le transcript + index courant
+let tLineTs=[], tLineEls=[];     // instants (croissants) et lignes de la modale → recherche par dichotomie
+let tFollow=true;                // la modale suit la lecture (pause : défilement manuel, saut à une occurrence)
+let tFollowIdx=-1;               // dernière ligne calée sur la lecture
 let tWholeWord=false;            // recherche transcript : mot entier (\b…\b)
 let kWholeWord=false;            // recherche globale : mot entier (\b…\b)
 let page=0;               // page courante (pagination des VOD)
@@ -483,13 +492,16 @@ function buildTranscriptLines(vodId, kw){
   const chat=tMode==="c", segs=modalLines(vodId), body=document.getElementById("tmBody");
   const H=s=>kw?hl(s,kw,tWholeWord):esc(s);
   body.innerHTML=""; const frag=document.createDocumentFragment();
-  segs.forEach(s=>{ const t=s[0], b=document.createElement("button"); b.className="tline"; b.dataset.t=t;
+  tLineTs=[]; tLineEls=[]; tFollowIdx=-1;
+  segs.forEach((s,i)=>{ const t=s[0], b=document.createElement("button"); b.className="tline"; b.dataset.t=t;
+    tLineTs.push(t); tLineEls.push(b);
     const tx=chat?`<span class="tu" style="color:${chatColor(s[3])}">${H(s[1])}</span>${richChat(s[2],kw,tWholeWord)}`:H(s[1]);
     b.innerHTML=`<span class="tt">${hmsT(t)}</span><span class="tx">${tx}</span>`;
     // Saut 1 s avant la ligne : le message apparaît alors dans le chat incrusté.
     b.onclick=()=>{ const s=Math.max(0, t-1);
       playT=s; playVod=vodId;   // position courante → l'autre onglet s'y alignera
       playAt(vodId, s);
+      tFollowIdx=i; setFollow(true);   // clic = nouveau point de départ du suivi
       body.querySelectorAll(".tline.cur").forEach(e=>e.classList.remove("cur")); b.classList.add("cur"); };
     frag.appendChild(b); });
   body.appendChild(frag);
@@ -506,15 +518,30 @@ function scrollBodyToLine(ln){ const body=document.getElementById("tmBody");
   body.querySelectorAll(".tline.cur").forEach(e=>e.classList.remove("cur")); ln.classList.add("cur");
   const br=ln.getBoundingClientRect(), pr=body.getBoundingClientRect();
   animScroll(body, body.scrollTop + (br.top-pr.top) - body.clientHeight/2 + br.height/2, 170); }
-function scrollTranscriptTo(t){ const body=document.getElementById("tmBody");
-  const lines=body.querySelectorAll(".tline"); if(!lines.length) return;
-  // chat : t des messages = apparition dans la fenêtre de chat incrustée à la
-  // vidéo → le log se cale sur ce qu'on voit à l'écran à cet instant.
-  let target=lines[0];   // repli : rien avant la cible → 1re ligne (jamais de .cur périmé)
-  // +1,5 s : un clic sur une ligne place la vidéo 1 s AVANT elle → en revenant
-  // sur cet onglet (ou en changeant d'onglet), on retombe sur la ligne cliquée.
-  lines.forEach(ln=>{ if(parseFloat(ln.dataset.t)<=t+1.5) target=ln; });
-  scrollBodyToLine(target); }
+// Ligne de la modale à l'instant t : la dernière qui commence à t+1,5 s ou avant.
+// chat : t des messages = apparition dans la fenêtre de chat incrustée à la
+// vidéo → le log se cale sur ce qu'on voit à l'écran à cet instant.
+// +1,5 s : un clic sur une ligne place la vidéo 1 s AVANT elle → en revenant
+// sur cet onglet (ou en changeant d'onglet), on retombe sur la ligne cliquée.
+// Repli : rien avant la cible → 1re ligne (jamais de .cur périmé).
+function lineAt(t){ let lo=0, hi=tLineTs.length-1, k=0;
+  while(lo<=hi){ const m=(lo+hi)>>1; if(tLineTs[m]<=t+1.5){ k=m; lo=m+1; } else hi=m-1; }
+  return k; }
+function scrollTranscriptTo(t){ if(!tLineEls.length) return;
+  setFollow(true);   // positionnement explicite → le suivi reprend d'ici
+  tFollowIdx=lineAt(t); scrollBodyToLine(tLineEls[tFollowIdx]); }
+// Suivi de la lecture : la modale avance avec la vidéo (même règle que
+// scrollTranscriptTo), seulement quand la ligne courante change. Pause dès qu'on
+// fait défiler à la main ou qu'on saute à une occurrence ; tmResume le relance.
+function setFollow(on){ tFollow=on; showResume(); }
+function showResume(){ const show=!tFollow && transcriptOpen() && tLineEls.length>0 && playerTime(tVod)!=null;
+  document.getElementById("tmResume").style.display=show?"":"none"; }
+function followPlayer(){
+  showResume();
+  if(!tFollow || !transcriptOpen() || !tLineEls.length) return;
+  const t=playerTime(tVod); if(t==null) return;   // la vidéo lue n'est pas celle de la modale
+  const i=lineAt(t); if(i===tFollowIdx) return;
+  tFollowIdx=i; scrollBodyToLine(tLineEls[i]); }
 // Rail vertical : un tick par ligne contenant le mot cherché → clic = saut.
 function buildMatchRail(kw){
   const rail=document.getElementById("tmRail"), body=document.getElementById("tmBody");
@@ -533,6 +560,7 @@ function buildMatchRail(kw){
 function gotoMatchIndex(i){
   if(i<0||i>=tMatches.length) return;
   tMatchIdx=i; const m=tMatches[i];
+  setFollow(false);   // sinon le suivi ramènerait aussitôt à la position de lecture
   scrollBodyToLine(m.line);
   document.querySelectorAll("#tmRail .ttick.on").forEach(t=>t.classList.remove("on"));
   m.tick.classList.add("on");
@@ -574,6 +602,7 @@ function openTranscript(vodId, focusT){
   document.getElementById("tmWord").classList.toggle("on", tWholeWord);
   const body=document.getElementById("tmBody"), segs=modalLines(vodId);
   const ready = modalLoaded() && segs.length;
+  tLineTs=[]; tLineEls=[]; tFollowIdx=-1; tFollow=true;   // remplies par buildTranscriptLines
   if(!modalLoaded()) body.innerHTML=tMode==="c"?'<div class="empty">Loading chat…</div>'
                                                :'<div class="empty" id="tmLoadMsg">'+loadBarHTML()+'</div>';
   else if(!segs.length) body.innerHTML='<div class="empty">'+(tMode==="c"?"No Twitch chat for this VOD."
@@ -587,7 +616,7 @@ function openTranscript(vodId, focusT){
   if(focusT!=null && ready) requestAnimationFrame(()=>scrollTranscriptTo(focusT));
 }
 function closeTranscript(){ document.getElementById("tmodal").style.display="none"; tVod=null;
-  syncNowBtns(); }
+  showResume(); syncNowBtns(); }
 function transcriptOpen(){ return document.getElementById("tmodal").style.display!=="none"; }
 
 // --- Aperçu storyboard : calcule la tuile de la sprite à l'instant t ---
@@ -1098,14 +1127,23 @@ document.getElementById("tmWord").onclick=function(){
 // Position à laquelle aligner la modale pour une VOD : instant réel du lecteur
 // si cette VOD est en cours, sinon la dernière position choisie (moment, clic
 // pellicule, clic sur une ligne transcript/chat), sinon rien.
-// Le temps du lecteur ne compte que s'il joue déjà CETTE vidéo : juste après un
-// clic sur une autre VOD, il peut encore renvoyer le temps de la précédente.
-function posOf(vid){
+function posOf(vid){ const t=playerTime(vid); return t!=null ? t : (playVod===vid ? playT : null); }
+// Instant réel du lecteur, ou null. Il ne compte que s'il joue déjà CETTE vidéo :
+// juste après un clic sur une autre VOD, il peut encore renvoyer le temps de la précédente.
+function playerTime(vid){
   if(vid && vid===curVid && playerReady && player && player.getCurrentTime){
     try{ const d=player.getVideoData&&player.getVideoData(), t=player.getCurrentTime();
       if(t>0 && (!d || !d.video_id || d.video_id===vid)) return t; }catch(e){} }
-  return playVod===vid ? playT : null;
+  return null;
 }
+document.getElementById("tmResume").onclick=()=>{ setFollow(true); tFollowIdx=-1; followPlayer(); };
+// Défilement à la main (molette, doigt, clavier, barre de défilement) → pause du
+// suivi. On écoute les gestes et non « scroll », que le suivi déclenche lui-même.
+(()=>{ const b=document.getElementById("tmBody"), off=()=>{ if(tFollow) setFollow(false); };
+  b.addEventListener("wheel",off,{passive:true});
+  b.addEventListener("touchmove",off,{passive:true});
+  b.addEventListener("keydown",e=>{ if(/^(Arrow(Up|Down)|Page(Up|Down)|Home|End)$/.test(e.key)) off(); });
+  b.addEventListener("mousedown",e=>{ if(e.target===b && e.offsetX>=b.clientWidth) off(); }); })();
 function setModalMode(m){ tMode=m; if(tVod) openTranscript(tVod, posOf(tVod)); }
 document.getElementById("tmTabT").onclick=()=>setModalMode("t");
 document.getElementById("tmTabC").onclick=()=>setModalMode("c");
@@ -1134,7 +1172,8 @@ if(location.protocol==="file:") document.getElementById("fileNote").style.displa
 
 // Tête de lecture : suit la position de lecture (et survit aux re-rendus car on
 // relit le DOM à chaque tick). Lecture seule, très léger (getCurrentTime + styles).
-setInterval(()=>updatePlayhead(), 250);
+// La modale transcript/chat suit au même rythme.
+setInterval(()=>{ updatePlayhead(); followPlayer(); }, 250);
 
 // Index : revalidé à chaque visite (ETag → 304 sans téléchargement s'il n'a
 // pas changé depuis la dernière publication).
